@@ -1,0 +1,72 @@
+[project]
+name = "hass-template-humidifier"
+version = "0.1.0b1"
+description = "YAML-first template humidifier and dehumidifier entities for Home Assistant"
+readme = "README.md"
+requires-python = ">=3.14.2,<3.15"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "basedpyright==1.33.0",
+    "homeassistant==2026.8.3",
+    "pytest==9.0.3",
+    "pytest-cov==7.1.0",
+    "pytest-homeassistant-custom-component==0.13.357",
+    "ruff==0.13.2",
+]
+
+[tool.uv]
+required-version = ">=0.11.29"
+
+[tool.basedpyright]
+typeCheckingMode = "all"
+pythonVersion = "3.14"
+pythonPlatform = "All"
+include = ["custom_components", "scripts", "tests"]
+exclude = ["**/__pycache__", ".venv", ".uv-cache", ".uv-python", "dist"]
+reportMissingTypeStubs = "none"
+reportPrivateUsage = "none"
+reportUnusedCallResult = "warning"
+
+[tool.ruff]
+target-version = "py314"
+line-length = 88
+src = ["custom_components", "scripts", "tests"]
+extend-exclude = [".uv-cache", ".uv-python", ".venv", "dist"]
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = ["COM812", "ISC001", "D203", "D213", "CPY001", "TD002", "TD003", "FIX002"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "ARG", "PLR0913", "PLR2004", "SLF001", "D"]
+"scripts/**/*.py" = ["T201", "INP001"]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true
+
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = ["-ra", "--strict-config", "--strict-markers"]
+filterwarnings = ["error"]
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["custom_components/template_humidifier"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 95
+show_missing = true
+exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:", "raise NotImplementedError"]

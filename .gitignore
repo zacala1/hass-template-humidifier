@@ -1,0 +1,22 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.basedpyright/
+.coverage
+coverage.xml
+htmlcov/
+.venv/
+.uv-cache/
+.uv-python/
+dist/
+release/
+*.zip
+.env
+.env.*
+!.env.example
+
+
+# Local agent workspaces (plans, evidence, session state)
+.omo/
+.codex/
