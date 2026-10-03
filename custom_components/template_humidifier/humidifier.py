@@ -1,28 +1,33 @@
 """Humidifier platform of the Template Humidifier integration."""
 
 import logging
-from typing import TYPE_CHECKING, Any, override
+from typing import TYPE_CHECKING, cast, override
 
 import voluptuous as vol
-from homeassistant.components.humidifier import (
+from homeassistant.components.humidifier import ENTITY_ID_FORMAT, HumidifierEntity
+from homeassistant.components.humidifier.const import (
     DEFAULT_MAX_HUMIDITY,
     DEFAULT_MIN_HUMIDITY,
     DOMAIN as HUMIDIFIER_DOMAIN,
-    ENTITY_ID_FORMAT,
-    HumidifierEntity,
 )
 from homeassistant.components.template import validators as template_validators
 from homeassistant.components.template.template_entity import TemplateEntity
-from homeassistant.const import CONF_NAME, CONF_STATE, CONF_UNIQUE_ID
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.const import (
+    CONF_DEVICE_CLASS,
+    CONF_NAME,
+    CONF_STATE,
+    CONF_UNIQUE_ID,
+)
+from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError, TemplateError
 from homeassistant.helpers.entity_platform import (
-    AddEntitiesCallback,
     async_create_platform_config_not_supported_issue,
 )
 from homeassistant.helpers.script import async_validate_actions_config
 from homeassistant.helpers.template import Template
-from voluptuous.humanize import humanize_error
+from voluptuous.humanize import (
+    humanize_error,  # pyright: ignore[reportUnknownVariableType]
+)
 
 from .const import (
     CONF_CURRENT_HUMIDITY,
@@ -33,6 +38,7 @@ from .const import (
     CONF_TARGET_HUMIDITY_STEP,
     CONF_TURN_OFF,
     CONF_TURN_ON,
+    DEFAULT_NAME,
     DOMAIN,
     ENTITIES,
     SCRIPT_FIELDS,
@@ -41,6 +47,9 @@ from .const import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from homeassistant.components.humidifier import HumidifierDeviceClass
+    from homeassistant.core import HomeAssistant
+    from homeassistant.helpers.entity_platform import AddEntitiesCallback
     from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 _LOGGER = logging.getLogger(__name__)
@@ -50,7 +59,7 @@ _MAX_HUMIDITY = 100
 
 async def async_setup_platform(
     hass: HomeAssistant,
-    config: ConfigType,  # noqa: ARG001
+    _config: ConfigType,
     async_add_entities: AddEntitiesCallback,
     discovery_info: DiscoveryInfoType | None = None,
 ) -> None:
@@ -65,12 +74,12 @@ async def async_setup_platform(
         )
         return
 
-    prefix: str | None = discovery_info.get(CONF_UNIQUE_ID)
+    prefix = cast("str | None", discovery_info.get(CONF_UNIQUE_ID))
     entities: list[TemplateHumidifier] = []
-    for entity_config in discovery_info[ENTITIES]:
+    for entity_config in cast("list[ConfigType]", discovery_info[ENTITIES]):
         if (validated := await _async_validate_scripts(hass, entity_config)) is None:
             continue
-        unique_id: str | None = validated.get(CONF_UNIQUE_ID)
+        unique_id = cast("str | None", validated.get(CONF_UNIQUE_ID))
         if unique_id and prefix:
             unique_id = f"{prefix}-{unique_id}"
         entities.append(TemplateHumidifier(hass, validated, unique_id))
@@ -83,13 +92,12 @@ async def _async_validate_scripts(
     """Resolve the command scripts, or log why this entity cannot be created."""
     validated = dict(entity_config)
     for field in SCRIPT_FIELDS:
+        actions = cast("list[ConfigType]", entity_config[field])
         try:
-            validated[field] = await async_validate_actions_config(
-                hass, entity_config[field]
-            )
+            validated[field] = await async_validate_actions_config(hass, actions)
         except (vol.Invalid, HomeAssistantError) as err:
             reason = (
-                humanize_error(entity_config[field], err)
+                humanize_error(actions, err)
                 if isinstance(err, vol.Invalid)
                 else str(err)
             )
@@ -106,20 +114,20 @@ async def _async_validate_scripts(
 
 def _describe(config: ConfigType) -> str:
     """Return a human readable identifier for log messages."""
-    if (default_entity_id := config.get("default_entity_id")) is not None:
-        return str(default_entity_id)
-    if (unique_id := config.get(CONF_UNIQUE_ID)) is not None:
+    if default_entity_id := cast("str | None", config.get("default_entity_id")):
+        return default_entity_id
+    if (unique_id := cast("str | None", config.get(CONF_UNIQUE_ID))) is not None:
         return f"unique_id: {unique_id}"
-    name = config.get(CONF_NAME)
-    return name.template if isinstance(name, Template) else "Template Humidifier"
+    name = cast("Template | None", config.get(CONF_NAME))
+    return name.template if isinstance(name, Template) else DEFAULT_NAME
 
 
 class TemplateHumidifier(TemplateEntity, HumidifierEntity):
     """A humidifier or dehumidifier assembled from existing entities."""
 
-    _attr_should_poll = False
-    _entity_id_format = ENTITY_ID_FORMAT
-    _state_option = CONF_STATE
+    _attr_should_poll: bool = False
+    _entity_id_format: str = ENTITY_ID_FORMAT
+    _state_option: str | None = CONF_STATE
 
     def __init__(
         self,
@@ -129,38 +137,33 @@ class TemplateHumidifier(TemplateEntity, HumidifierEntity):
     ) -> None:
         """Initialize the humidifier."""
         TemplateEntity.__init__(self, hass, config, unique_id)
-        self._attr_device_class = config["device_class"]
+        # Home Assistant declares this attribute as ``str`` on Entity but as the
+        # narrower enum on HumidifierEntity, which no annotation can satisfy.
+        self._attr_device_class: HumidifierDeviceClass | None = cast(  # pyright: ignore[reportIncompatibleVariableOverride]
+            "HumidifierDeviceClass", config[CONF_DEVICE_CLASS]
+        )
 
-        none_on_unknown = {"none_on_unknown_unavailable": True}
         self.setup_state_template(
             "_attr_is_on",
-            template_validators.boolean(self, CONF_STATE, **none_on_unknown),
+            template_validators.boolean(
+                self, CONF_STATE, none_on_unknown_unavailable=True
+            ),
         )
         for option, attribute in (
             (CONF_CURRENT_HUMIDITY, "_attr_current_humidity"),
             (CONF_TARGET_HUMIDITY, "_attr_target_humidity"),
         ):
-            self.setup_template(
-                option,
-                attribute,
-                template_validators.number(
-                    self, option, 0, _MAX_HUMIDITY, **none_on_unknown
-                ),
-            )
+            self.setup_template(option, attribute, self._humidity_number(option))
         self._setup_setting(
             CONF_MIN_HUMIDITY,
             "_attr_min_humidity",
-            template_validators.number(
-                self, CONF_MIN_HUMIDITY, 0, _MAX_HUMIDITY, **none_on_unknown
-            ),
+            self._humidity_number(CONF_MIN_HUMIDITY),
             DEFAULT_MIN_HUMIDITY,
         )
         self._setup_setting(
             CONF_MAX_HUMIDITY,
             "_attr_max_humidity",
-            template_validators.number(
-                self, CONF_MAX_HUMIDITY, 0, _MAX_HUMIDITY, **none_on_unknown
-            ),
+            self._humidity_number(CONF_MAX_HUMIDITY),
             DEFAULT_MAX_HUMIDITY,
         )
         self._setup_setting(
@@ -170,17 +173,23 @@ class TemplateHumidifier(TemplateEntity, HumidifierEntity):
             None,
         )
 
-        name = self._attr_name or "Template Humidifier"
+        name = self._attr_name or DEFAULT_NAME
         for field in SCRIPT_FIELDS:
-            self.add_script(field, config[field], name, DOMAIN)
+            self.add_script(
+                field, cast("list[ConfigType]", config[field]), name, DOMAIN
+            )
 
-    def _positive_number(self, option: str) -> Callable[[Any], float | int | None]:
-        """Return a validator accepting numbers above 0 up to 100."""
-        convert = template_validators.number(
+    def _humidity_number(self, option: str) -> Callable[[object], float | int | None]:
+        """Return a validator accepting numbers from 0 to 100."""
+        return template_validators.number(
             self, option, 0, _MAX_HUMIDITY, none_on_unknown_unavailable=True
         )
 
-        def validate(result: Any) -> float | int | None:  # noqa: ANN401
+    def _positive_number(self, option: str) -> Callable[[object], float | int | None]:
+        """Return a validator accepting numbers above 0 up to 100."""
+        convert = self._humidity_number(option)
+
+        def validate(result: object) -> float | int | None:
             value = convert(result)
             if value is not None and value <= 0:
                 template_validators.log_validation_result_error(
@@ -195,13 +204,13 @@ class TemplateHumidifier(TemplateEntity, HumidifierEntity):
         self,
         option: str,
         attribute: str,
-        validator: Callable[[Any], float | int | None],
+        validator: Callable[[object], float | int | None],
         default: float | None,
     ) -> None:
         """Track a capability template, reverting to a default when unusable."""
 
         @callback
-        def update(result: Any) -> None:  # noqa: ANN401
+        def update(result: object) -> None:
             value = None if isinstance(result, TemplateError) else result
             setattr(self, attribute, default if value is None else value)
 
@@ -210,14 +219,14 @@ class TemplateHumidifier(TemplateEntity, HumidifierEntity):
         )
 
     @override
-    async def async_turn_on(self, **kwargs: Any) -> None:
+    async def async_turn_on(self, **kwargs: object) -> None:
         """Run the ``turn_on`` actions."""
         await self.async_run_script(
             self._action_scripts[CONF_TURN_ON], context=self._context
         )
 
     @override
-    async def async_turn_off(self, **kwargs: Any) -> None:
+    async def async_turn_off(self, **kwargs: object) -> None:
         """Run the ``turn_off`` actions."""
         await self.async_run_script(
             self._action_scripts[CONF_TURN_OFF], context=self._context

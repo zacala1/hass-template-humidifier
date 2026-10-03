@@ -2,19 +2,22 @@
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, cast
 
 from homeassistant import config as hass_config
 from homeassistant.const import STATE_OFF
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.setup import async_setup_component
-from pytest_homeassistant_custom_component.common import patch_yaml_files
+from pytest_homeassistant_custom_component.common import (
+    patch_yaml_files,  # pyright: ignore[reportUnknownVariableType]
+)
 
-from .conftest import DOMAIN, HUMIDIFIER_ID, SetupIntegration, entity_config
+from .conftest import DOMAIN, HUMIDIFIER_ID, entity_config
 
 if TYPE_CHECKING:
     import pytest
     from homeassistant.core import HomeAssistant
+    from homeassistant.helpers.typing import ConfigType
 
 ENTITY_YAML = """\
 - humidifier:
@@ -35,15 +38,15 @@ ENTITY_YAML = """\
 """
 
 
-async def test_include_file_is_supported(
-    hass: HomeAssistant, setup_integration: SetupIntegration
-) -> None:
+async def test_include_file_is_supported(hass: HomeAssistant) -> None:
     files = {
         hass_config.YAML_CONFIG_FILE: f"{DOMAIN}: !include humidifiers.yaml\n",
         "humidifiers.yaml": ENTITY_YAML,
     }
     with patch_yaml_files(files):
-        config = await hass_config.async_hass_config_yaml(hass)
+        config: ConfigType = await hass_config.async_hass_config_yaml(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+            hass
+        )
 
     assert await async_setup_component(hass, DOMAIN, config)
     await hass.async_block_till_done()
@@ -53,7 +56,7 @@ async def test_include_file_is_supported(
     assert state.state == STATE_OFF
 
 
-async def test_packages_merge_into_one_list(hass: HomeAssistant, sources: None) -> None:
+async def test_packages_merge_into_one_list(hass: HomeAssistant) -> None:
     packages = {
         "pkg_a": {DOMAIN: [{"humidifier": [entity_config()]}]},
         "pkg_b": {
@@ -66,8 +69,10 @@ async def test_packages_merge_into_one_list(hass: HomeAssistant, sources: None) 
             ]
         },
     }
-    config: dict[str, Any] = {}
-    await hass_config.merge_packages_config(hass, config, packages)
+    config: ConfigType = {}
+    _ = await hass_config.merge_packages_config(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+        hass, config, packages
+    )
 
     assert await async_setup_component(hass, DOMAIN, config)
     await hass.async_block_till_done()
@@ -78,7 +83,6 @@ async def test_packages_merge_into_one_list(hass: HomeAssistant, sources: None) 
 
 async def test_invalid_entity_does_not_block_other_sections(
     hass: HomeAssistant,
-    sources: None,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     config = {
@@ -97,7 +101,7 @@ async def test_invalid_entity_does_not_block_other_sections(
 
 
 async def test_all_sections_invalid_sets_up_without_entities(
-    hass: HomeAssistant, sources: None
+    hass: HomeAssistant,
 ) -> None:
     config = {
         DOMAIN: [{"humidifier": [entity_config(min_humidity=90, max_humidity=10)]}]
@@ -111,7 +115,6 @@ async def test_all_sections_invalid_sets_up_without_entities(
 
 async def test_invalid_script_skips_only_that_entity(
     hass: HomeAssistant,
-    sources: None,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     broken = entity_config(
@@ -131,7 +134,6 @@ async def test_invalid_script_skips_only_that_entity(
 
 async def test_legacy_platform_syntax_is_reported(
     hass: HomeAssistant,
-    sources: None,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     config = {"humidifier": [{"platform": DOMAIN, **entity_config()}]}
@@ -149,11 +151,16 @@ async def test_legacy_platform_syntax_is_reported(
 
 
 def test_manifest_matches_domain() -> None:
-    manifest = json.loads(
-        Path("custom_components/template_humidifier/manifest.json").read_text("utf-8")
+    manifest = cast(
+        "dict[str, object]",
+        json.loads(
+            Path("custom_components/template_humidifier/manifest.json").read_text(
+                "utf-8"
+            )
+        ),
     )
 
     assert manifest["domain"] == DOMAIN
     assert manifest["iot_class"] == "local_push"
     assert manifest["requirements"] == []
-    assert "humidifier" in manifest["dependencies"]
+    assert "humidifier" in cast("list[str]", manifest["dependencies"])

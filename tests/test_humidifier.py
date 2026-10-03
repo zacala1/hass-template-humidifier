@@ -18,6 +18,7 @@ from .conftest import (
     TARGET,
     SetupIntegration,
     entity_config,
+    get_state,
 )
 
 if TYPE_CHECKING:
@@ -41,7 +42,7 @@ async def test_maps_properties_to_attributes(
 ) -> None:
     await setup_integration(entity_config())
 
-    attributes = hass.states.get(HUMIDIFIER_ID).attributes  # type: ignore[union-attr]
+    attributes = get_state(hass).attributes
     assert attributes["current_humidity"] == 57
     assert attributes["humidity"] == 50
     assert attributes["min_humidity"] == 40
@@ -135,7 +136,7 @@ async def test_numeric_template_error_becomes_none(
     await setup_integration(
         entity_config(current_humidity=f"{{{{ states('{HUMIDITY}') | float }}}}")
     )
-    assert hass.states.get(HUMIDIFIER_ID).attributes["current_humidity"] == 57  # type: ignore[union-attr]
+    assert get_state(hass).attributes["current_humidity"] == 57
 
     hass.states.async_set(HUMIDITY, "unavailable")
     await hass.async_block_till_done()
@@ -157,7 +158,7 @@ async def test_unusable_state_result_is_unknown(
     hass.states.async_set(POWER, value)
     await hass.async_block_till_done()
 
-    assert hass.states.get(HUMIDIFIER_ID).state == STATE_UNKNOWN  # type: ignore[union-attr]
+    assert get_state(hass).state == STATE_UNKNOWN
 
 
 async def test_state_template_error_makes_entity_unavailable_and_recovers(
@@ -166,15 +167,15 @@ async def test_state_template_error_makes_entity_unavailable_and_recovers(
     await setup_integration(
         entity_config(state=f"{{{{ (states('{HUMIDITY}') | float) > 50 }}}}")
     )
-    assert hass.states.get(HUMIDIFIER_ID).state == STATE_ON  # type: ignore[union-attr]
+    assert get_state(hass).state == STATE_ON
 
     hass.states.async_set(HUMIDITY, "unavailable")
     await hass.async_block_till_done()
-    assert hass.states.get(HUMIDIFIER_ID).state == STATE_UNAVAILABLE  # type: ignore[union-attr]
+    assert get_state(hass).state == STATE_UNAVAILABLE
 
     hass.states.async_set(HUMIDITY, "40")
     await hass.async_block_till_done()
-    assert hass.states.get(HUMIDIFIER_ID).state == STATE_OFF  # type: ignore[union-attr]
+    assert get_state(hass).state == STATE_OFF
 
 
 async def test_limits_and_step_follow_templates(
@@ -191,14 +192,14 @@ async def test_limits_and_step_follow_templates(
         )
     )
 
-    attributes = hass.states.get(HUMIDIFIER_ID).attributes  # type: ignore[union-attr]
+    attributes = get_state(hass).attributes
     assert (attributes["min_humidity"], attributes["max_humidity"]) == (35, 65)
     assert attributes["target_humidity_step"] == 2.5
 
     hass.states.async_set(TARGET, "50", {"min": 30, "max": 80, "step": 5})
     await hass.async_block_till_done()
 
-    attributes = hass.states.get(HUMIDIFIER_ID).attributes  # type: ignore[union-attr]
+    attributes = get_state(hass).attributes
     assert (attributes["min_humidity"], attributes["max_humidity"]) == (30, 80)
     assert attributes["target_humidity_step"] == 5
 
@@ -216,7 +217,7 @@ async def test_unusable_limits_fall_back_to_defaults(
         )
     )
 
-    attributes = hass.states.get(HUMIDIFIER_ID).attributes  # type: ignore[union-attr]
+    attributes = get_state(hass).attributes
     assert attributes["min_humidity"] == 0
     assert attributes["max_humidity"] == 100
     assert "target_humidity_step" not in attributes
@@ -230,7 +231,7 @@ async def test_limits_default_when_omitted(
         del config[key]
     await setup_integration(config)
 
-    attributes = hass.states.get(HUMIDIFIER_ID).attributes  # type: ignore[union-attr]
+    attributes = get_state(hass).attributes
     assert attributes["min_humidity"] == 0
     assert attributes["max_humidity"] == 100
     assert "target_humidity_step" not in attributes

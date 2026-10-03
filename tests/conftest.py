@@ -1,14 +1,16 @@
 """Shared fixtures for Template Humidifier tests."""
 
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import pytest
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import async_mock_service
 
 if TYPE_CHECKING:
-    from homeassistant.core import HomeAssistant, ServiceCall
+    from homeassistant.core import HomeAssistant, ServiceCall, State
+    from homeassistant.helpers.typing import ConfigType
 
 pytest_plugins = ["pytest_homeassistant_custom_component"]
 
@@ -18,13 +20,18 @@ POWER = "switch.dehumidifier_power"
 HUMIDITY = "sensor.dehumidifier_humidity"
 TARGET = "number.dehumidifier_target"
 
-type EntityConfig = dict[str, Any]
 type SetupIntegration = Callable[..., Awaitable[None]]
 
 
-def entity_config(**overrides: Any) -> EntityConfig:  # noqa: ANN401
+@pytest.fixture(autouse=True)
+def auto_enable_custom_integrations(enable_custom_integrations: None) -> None:
+    """Allow Home Assistant to load the integration under test."""
+    assert enable_custom_integrations is None
+
+
+def entity_config(**overrides: object) -> ConfigType:
     """Return a complete, valid humidifier entity configuration."""
-    config: EntityConfig = {
+    config: ConfigType = {
         "name": "Living Room Dehumidifier",
         "unique_id": "living_room_dehumidifier",
         "device_class": "dehumidifier",
@@ -44,12 +51,23 @@ def entity_config(**overrides: Any) -> EntityConfig:  # noqa: ANN401
     return config
 
 
+def get_state(hass: HomeAssistant, entity_id: str = HUMIDIFIER_ID) -> State:
+    """Return the state of an entity that must exist."""
+    state = hass.states.get(entity_id)
+    assert state is not None, f"{entity_id} does not exist"
+    return state
+
+
+@dataclass(frozen=True)
+class Calls:
+    """Service calls recorded for the three command scripts."""
+
+    turn_on: list[ServiceCall]
+    turn_off: list[ServiceCall]
+    set_humidity: list[ServiceCall]
+
+
 @pytest.fixture(autouse=True)
-def _auto_enable_custom_integrations(enable_custom_integrations: None) -> None:
-    """Allow Home Assistant to load the integration under test."""
-
-
-@pytest.fixture
 def sources(hass: HomeAssistant) -> None:
     """Create the source entities the default configuration reads."""
     hass.states.async_set(POWER, "off")
@@ -57,31 +75,23 @@ def sources(hass: HomeAssistant) -> None:
     hass.states.async_set(TARGET, "50")
 
 
+@pytest.fixture(autouse=True)
+def calls(hass: HomeAssistant) -> Calls:
+    """Mock the services the default command scripts call."""
+    return Calls(
+        turn_on=async_mock_service(hass, "test", "turn_on"),
+        turn_off=async_mock_service(hass, "test", "turn_off"),
+        set_humidity=async_mock_service(hass, "test", "set_humidity"),
+    )
+
+
 @pytest.fixture
-def setup_integration(hass: HomeAssistant, sources: None) -> SetupIntegration:
+def setup_integration(hass: HomeAssistant) -> SetupIntegration:
     """Return a coroutine that sets the integration up with the given entities."""
 
-    async def _setup(*entities: EntityConfig, **section: Any) -> None:  # noqa: ANN401
-        config = {DOMAIN: [{"humidifier": list(entities), **section}]}
+    async def _setup(*entities: ConfigType, **section: object) -> None:
+        config: ConfigType = {DOMAIN: [{"humidifier": list(entities), **section}]}
         assert await async_setup_component(hass, DOMAIN, config)
         await hass.async_block_till_done()
 
     return _setup
-
-
-@pytest.fixture
-def turn_on_calls(hass: HomeAssistant) -> list[ServiceCall]:
-    """Record ``test.turn_on`` calls."""
-    return async_mock_service(hass, "test", "turn_on")
-
-
-@pytest.fixture
-def turn_off_calls(hass: HomeAssistant) -> list[ServiceCall]:
-    """Record ``test.turn_off`` calls."""
-    return async_mock_service(hass, "test", "turn_off")
-
-
-@pytest.fixture
-def set_humidity_calls(hass: HomeAssistant) -> list[ServiceCall]:
-    """Record ``test.set_humidity`` calls."""
-    return async_mock_service(hass, "test", "set_humidity")

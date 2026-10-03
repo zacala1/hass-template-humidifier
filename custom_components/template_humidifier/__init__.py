@@ -1,6 +1,6 @@
 """YAML-first template humidifiers and dehumidifiers for Home Assistant."""
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from homeassistant.const import CONF_UNIQUE_ID, Platform
 from homeassistant.helpers import discovery
@@ -14,8 +14,8 @@ if TYPE_CHECKING:
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the humidifier platform for every validated section."""
-    for section in config.get(DOMAIN, []):
-        hass.async_create_task(
+    for section in cast("list[ConfigType]", config.get(DOMAIN, [])):
+        _ = hass.async_create_task(
             discovery.async_load_platform(
                 hass,
                 Platform.HUMIDIFIER,

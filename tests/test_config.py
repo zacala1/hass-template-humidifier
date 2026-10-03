@@ -1,85 +1,95 @@
 """Configuration schema contract for the ``template_humidifier`` domain."""
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, cast
 
 import pytest
 import voluptuous as vol
 from custom_components.template_humidifier.config import CONFIG_SECTION_SCHEMA
 from homeassistant.components.humidifier import HumidifierDeviceClass
 
-from .conftest import EntityConfig, entity_config
+from .conftest import entity_config
 
 if TYPE_CHECKING:
-    from homeassistant.core import HomeAssistant
+    from homeassistant.helpers.template import Template
+    from homeassistant.helpers.typing import ConfigType
 
 
-def _validate(*entities: EntityConfig, **section: Any) -> dict[str, Any]:  # noqa: ANN401
-    return CONFIG_SECTION_SCHEMA({"humidifier": list(entities), **section})
+def _validate(*entities: ConfigType, **section: object) -> ConfigType:
+    return cast(
+        "ConfigType",
+        CONFIG_SECTION_SCHEMA({"humidifier": list(entities), **section}),
+    )
 
 
-async def test_accepts_full_dehumidifier(hass: HomeAssistant) -> None:
-    section = _validate(entity_config())
+def _section(raw: object) -> ConfigType:
+    return cast("ConfigType", CONFIG_SECTION_SCHEMA(raw))
 
-    [entity] = section["humidifier"]
+
+def _template(entity: ConfigType, key: str) -> Template:
+    return cast("Template", entity[key])
+
+
+def _entities(*entities: ConfigType, **section: object) -> list[ConfigType]:
+    return cast("list[ConfigType]", _validate(*entities, **section)["humidifier"])
+
+
+async def test_accepts_full_dehumidifier() -> None:
+    [entity] = _entities(entity_config())
     assert entity["device_class"] is HumidifierDeviceClass.DEHUMIDIFIER
     assert entity["unique_id"] == "living_room_dehumidifier"
 
 
-async def test_accepts_humidifier_device_class(hass: HomeAssistant) -> None:
-    [entity] = _validate(entity_config(device_class="humidifier"))["humidifier"]
+async def test_accepts_humidifier_device_class() -> None:
+    [entity] = _entities(entity_config(device_class="humidifier"))
 
     assert entity["device_class"] is HumidifierDeviceClass.HUMIDIFIER
 
 
-async def test_device_class_is_case_insensitive(hass: HomeAssistant) -> None:
-    [entity] = _validate(entity_config(device_class="Dehumidifier"))["humidifier"]
+async def test_device_class_is_case_insensitive() -> None:
+    [entity] = _entities(entity_config(device_class="Dehumidifier"))
 
     assert entity["device_class"] is HumidifierDeviceClass.DEHUMIDIFIER
 
 
-async def test_single_entity_mapping_is_wrapped_in_a_list(hass: HomeAssistant) -> None:
-    section = CONFIG_SECTION_SCHEMA({"humidifier": entity_config()})
+async def test_single_entity_mapping_is_wrapped_in_a_list() -> None:
+    section = _section({"humidifier": entity_config()})
 
-    assert len(section["humidifier"]) == 1
+    assert len(cast("list[ConfigType]", section["humidifier"])) == 1
 
 
-async def test_optional_core_keys_follow_core_template_defaults(
-    hass: HomeAssistant,
-) -> None:
+async def test_optional_core_keys_follow_core_template_defaults() -> None:
     config = entity_config()
     del config["name"]
     del config["unique_id"]
 
-    [entity] = _validate(config)["humidifier"]
+    [entity] = _entities(config)
 
-    assert entity["name"].template == "Template Humidifier"
+    assert _template(entity, "name").template == "Template Humidifier"
     assert "unique_id" not in entity
 
 
-async def test_accepts_modern_core_common_keys(hass: HomeAssistant) -> None:
-    [entity] = _validate(
+async def test_accepts_modern_core_common_keys() -> None:
+    [entity] = _entities(
         entity_config(
             default_entity_id="humidifier.bedroom",
             icon="mdi:air-humidifier",
             picture="/local/humidifier.png",
             availability="{{ true }}",
         )
-    )["humidifier"]
+    )
 
     assert entity["default_entity_id"] == "humidifier.bedroom"
-    assert entity["icon"].template == "mdi:air-humidifier"
-    assert entity["picture"].template == "/local/humidifier.png"
-    assert entity["availability"].template == "{{ true }}"
+    assert _template(entity, "icon").template == "mdi:air-humidifier"
+    assert _template(entity, "picture").template == "/local/humidifier.png"
+    assert _template(entity, "availability").template == "{{ true }}"
 
 
-async def test_rejects_default_entity_id_of_another_domain(
-    hass: HomeAssistant,
-) -> None:
+async def test_rejects_default_entity_id_of_another_domain() -> None:
     with pytest.raises(vol.Invalid, match="default_entity_id"):
-        _validate(entity_config(default_entity_id="sensor.bedroom"))
+        _ = _validate(entity_config(default_entity_id="sensor.bedroom"))
 
 
-async def test_accepts_section_unique_id(hass: HomeAssistant) -> None:
+async def test_accepts_section_unique_id() -> None:
     section = _validate(entity_config(), unique_id="section")
 
     assert section["unique_id"] == "section"
@@ -97,21 +107,20 @@ async def test_accepts_section_unique_id(hass: HomeAssistant) -> None:
         "set_humidity",
     ],
 )
-async def test_rejects_missing_required_key(hass: HomeAssistant, key: str) -> None:
+async def test_rejects_missing_required_key(key: str) -> None:
     config = entity_config()
     del config[key]
 
     with pytest.raises(vol.Invalid, match=key):
-        _validate(config)
+        _ = _validate(config)
 
 
 @pytest.mark.parametrize("device_class", ["fan", "heater", "", None, 3])
 async def test_rejects_unknown_device_class(
-    hass: HomeAssistant,
     device_class: object,
 ) -> None:
     with pytest.raises(vol.Invalid, match="device_class"):
-        _validate(entity_config(device_class=device_class))
+        _ = _validate(entity_config(device_class=device_class))
 
 
 @pytest.mark.parametrize(
@@ -127,12 +136,11 @@ async def test_rejects_unknown_device_class(
     ],
 )
 async def test_rejects_keys_that_are_not_supported_yet(
-    hass: HomeAssistant,
     key: str,
     value: object,
 ) -> None:
     with pytest.raises(vol.Invalid, match=key):
-        _validate(entity_config(**{key: value}))
+        _ = _validate(entity_config(**{key: value}))
 
 
 @pytest.mark.parametrize(
@@ -149,9 +157,9 @@ async def test_rejects_keys_that_are_not_supported_yet(
         "friendly_name",
     ],
 )
-async def test_rejects_legacy_key_names(hass: HomeAssistant, key: str) -> None:
+async def test_rejects_legacy_key_names(key: str) -> None:
     with pytest.raises(vol.Invalid, match=key):
-        _validate(entity_config(**{key: "{{ true }}"}))
+        _ = _validate(entity_config(**{key: "{{ true }}"}))
 
 
 @pytest.mark.parametrize(
@@ -163,17 +171,16 @@ async def test_rejects_legacy_key_names(hass: HomeAssistant, key: str) -> None:
     ],
 )
 async def test_rejects_unsupported_section_keys(
-    hass: HomeAssistant,
     section_key: str,
     value: object,
 ) -> None:
     with pytest.raises(vol.Invalid, match=section_key):
-        _validate(entity_config(), **{section_key: value})
+        _ = _validate(entity_config(), **{section_key: value})
 
 
-async def test_rejects_section_without_humidifier(hass: HomeAssistant) -> None:
+async def test_rejects_section_without_humidifier() -> None:
     with pytest.raises(vol.Invalid, match="humidifier"):
-        CONFIG_SECTION_SCHEMA({"unique_id": "only-an-id"})
+        _ = _section({"unique_id": "only-an-id"})
 
 
 @pytest.mark.parametrize(
@@ -181,12 +188,13 @@ async def test_rejects_section_without_humidifier(hass: HomeAssistant) -> None:
     [(80, 40), (50.5, 50), ("80", "40")],
 )
 async def test_rejects_static_minimum_above_maximum(
-    hass: HomeAssistant,
     min_humidity: object,
     max_humidity: object,
 ) -> None:
     with pytest.raises(vol.Invalid, match="min_humidity"):
-        _validate(entity_config(min_humidity=min_humidity, max_humidity=max_humidity))
+        _ = _validate(
+            entity_config(min_humidity=min_humidity, max_humidity=max_humidity)
+        )
 
 
 @pytest.mark.parametrize(
@@ -194,11 +202,10 @@ async def test_rejects_static_minimum_above_maximum(
     [(50, 50), (0, 100), (30.5, 80.5), ("30", "80")],
 )
 async def test_accepts_static_numeric_range(
-    hass: HomeAssistant,
     min_humidity: object,
     max_humidity: object,
 ) -> None:
-    _validate(entity_config(min_humidity=min_humidity, max_humidity=max_humidity))
+    _ = _validate(entity_config(min_humidity=min_humidity, max_humidity=max_humidity))
 
 
 @pytest.mark.parametrize(
@@ -213,7 +220,6 @@ async def test_accepts_static_numeric_range(
     ],
 )
 async def test_rejects_static_limits_that_are_not_valid_humidity(
-    hass: HomeAssistant,
     key: str,
     value: object,
 ) -> None:
@@ -221,40 +227,40 @@ async def test_rejects_static_limits_that_are_not_valid_humidity(
     config[key] = value
 
     with pytest.raises(vol.Invalid, match=key):
-        _validate(config)
+        _ = _validate(config)
 
 
 @pytest.mark.parametrize("step", [0, -5, 0.0, "abc", 101])
-async def test_rejects_invalid_static_step(hass: HomeAssistant, step: object) -> None:
+async def test_rejects_invalid_static_step(step: object) -> None:
     with pytest.raises(vol.Invalid, match="target_humidity_step"):
-        _validate(entity_config(target_humidity_step=step))
+        _ = _validate(entity_config(target_humidity_step=step))
 
 
-async def test_accepts_templates_for_limits_and_step(hass: HomeAssistant) -> None:
-    [entity] = _validate(
+async def test_accepts_templates_for_limits_and_step() -> None:
+    [entity] = _entities(
         entity_config(
             min_humidity="{{ state_attr('number.t', 'min') }}",
             max_humidity="{{ state_attr('number.t', 'max') }}",
             target_humidity_step="{{ state_attr('number.t', 'step') }}",
         )
-    )["humidifier"]
+    )
 
-    assert not entity["min_humidity"].is_static
-    assert not entity["max_humidity"].is_static
-    assert not entity["target_humidity_step"].is_static
-
-
-async def test_template_limit_is_not_compared_with_static_limit(
-    hass: HomeAssistant,
-) -> None:
-    _validate(entity_config(min_humidity=90, max_humidity="{{ states('number.t') }}"))
+    assert not _template(entity, "min_humidity").is_static
+    assert not _template(entity, "max_humidity").is_static
+    assert not _template(entity, "target_humidity_step").is_static
 
 
-async def test_rejects_malformed_template(hass: HomeAssistant) -> None:
+async def test_template_limit_is_not_compared_with_static_limit() -> None:
+    _ = _validate(
+        entity_config(min_humidity=90, max_humidity="{{ states('number.t') }}")
+    )
+
+
+async def test_rejects_malformed_template() -> None:
     with pytest.raises(vol.Invalid, match="state"):
-        _validate(entity_config(state="{{ is_state('a', 'on' }}"))
+        _ = _validate(entity_config(state="{{ is_state('a', 'on' }}"))
 
 
-async def test_rejects_malformed_action(hass: HomeAssistant) -> None:
+async def test_rejects_malformed_action() -> None:
     with pytest.raises(vol.Invalid, match="turn_on"):
-        _validate(entity_config(turn_on=[{"not_an_action": 1}]))
+        _ = _validate(entity_config(turn_on=[{"not_an_action": 1}]))

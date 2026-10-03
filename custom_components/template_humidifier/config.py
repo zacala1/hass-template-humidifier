@@ -4,19 +4,19 @@ The shape mirrors the modern Home Assistant ``template:`` integration: a list
 of sections, each holding a ``humidifier`` list of entity definitions.
 """
 
-import logging
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Final, cast
 
 import voluptuous as vol
-from homeassistant.components.humidifier import (
-    DEVICE_CLASSES_SCHEMA,
-    DOMAIN as HUMIDIFIER_DOMAIN,
-)
+from homeassistant.components.humidifier import DEVICE_CLASSES_SCHEMA
+from homeassistant.components.humidifier.const import DOMAIN as HUMIDIFIER_DOMAIN
 from homeassistant.components.template.const import CONF_AVAILABILITY
 from homeassistant.components.template.schemas import (
     make_template_entity_base_schema,
 )
-from homeassistant.config import async_log_schema_error, config_without_domain
+from homeassistant.config import (
+    async_log_schema_error,  # pyright: ignore[reportUnknownVariableType]
+    config_without_domain,
+)
 from homeassistant.const import CONF_DEVICE_CLASS, CONF_STATE, CONF_UNIQUE_ID
 from homeassistant.helpers import config_validation as cv
 from homeassistant.setup import async_notify_setup_error
@@ -40,8 +40,6 @@ if TYPE_CHECKING:
     from homeassistant.helpers.template import Template
     from homeassistant.helpers.typing import ConfigType
 
-_LOGGER = logging.getLogger(__name__)
-
 # Home Assistant needs this hint to merge ``packages`` that each define
 # ``template_humidifier`` instead of rejecting the duplicate key.
 PACKAGE_MERGE_HINT: Final = "list"
@@ -49,9 +47,9 @@ PACKAGE_MERGE_HINT: Final = "list"
 _MAX_HUMIDITY: Final = 100
 
 
-def _static_number(config: dict[str, Any], key: str) -> float | None:
+def _static_number(config: ConfigType, key: str) -> float | None:
     """Return the numeric value of a static option, or None for a template."""
-    template: Template | None = config.get(key)
+    template = cast("Template | None", config.get(key))
     if template is None or not template.is_static:
         return None
     try:
@@ -61,7 +59,7 @@ def _static_number(config: dict[str, Any], key: str) -> float | None:
         raise vol.Invalid(message, path=[key]) from None
 
 
-def _validate_limits(config: dict[str, Any]) -> dict[str, Any]:
+def _validate_limits(config: ConfigType) -> ConfigType:
     """Reject static humidity limits and steps that cannot work."""
     limits: dict[str, float] = {}
     for key in (CONF_MIN_HUMIDITY, CONF_MAX_HUMIDITY):
@@ -107,7 +105,11 @@ HUMIDIFIER_YAML_SCHEMA: Final = vol.All(
             vol.Required(CONF_TURN_OFF): cv.SCRIPT_SCHEMA,
             vol.Required(CONF_SET_HUMIDITY): cv.SCRIPT_SCHEMA,
         }
-    ).extend(make_template_entity_base_schema(HUMIDIFIER_DOMAIN, DEFAULT_NAME).schema),
+    ).extend(  # pyright: ignore[reportUnknownMemberType]
+        make_template_entity_base_schema(  # pyright: ignore[reportAny]
+            HUMIDIFIER_DOMAIN, DEFAULT_NAME
+        ).schema
+    ),
     _validate_limits,
 )
 
@@ -138,9 +140,11 @@ async def async_validate_config(hass: HomeAssistant, config: ConfigType) -> Conf
         if not _is_domain_key(key):
             continue
         found = True
-        for section in cv.ensure_list(config[key]):
+        for section in cast(
+            "list[ConfigType]", cv.ensure_list(cast("object", config[key]))
+        ):
             try:
-                sections.append(CONFIG_SECTION_SCHEMA(section))
+                sections.append(cast("ConfigType", CONFIG_SECTION_SCHEMA(section)))
             except vol.Invalid as err:
                 async_log_schema_error(err, DOMAIN, section, hass)
                 async_notify_setup_error(hass, DOMAIN)
