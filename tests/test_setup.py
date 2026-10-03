@@ -164,3 +164,18 @@ def test_manifest_matches_domain() -> None:
     assert manifest["iot_class"] == "local_push"
     assert manifest["requirements"] == []
     assert "humidifier" in cast("list[str]", manifest["dependencies"])
+
+
+async def test_labelled_domain_keys_are_supported(hass: HomeAssistant) -> None:
+    config: ConfigType = {
+        DOMAIN: [{"humidifier": [entity_config()]}],
+        f"{DOMAIN} bedroom": [
+            {"humidifier": [entity_config(name="Bedroom", unique_id="bedroom")]}
+        ],
+    }
+
+    assert await async_setup_component(hass, DOMAIN, config)
+    await hass.async_block_till_done()
+
+    assert hass.states.get(HUMIDIFIER_ID) is not None
+    assert hass.states.get("humidifier.bedroom") is not None

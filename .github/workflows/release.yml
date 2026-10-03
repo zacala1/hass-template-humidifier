@@ -1,0 +1,90 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.11.29"
+          enable-cache: false
+
+      - name: Install locked dependencies
+        run: uv sync --locked
+
+      - name: Ruff lint
+        run: uv run ruff check .
+
+      - name: Ruff format
+        run: uv run ruff format --check .
+
+      - name: BasedPyright
+        run: uv run basedpyright
+
+      - name: Tests with branch coverage
+        run: uv run pytest --cov --cov-branch --cov-fail-under=95
+
+      - name: Verify release tag
+        run: uv run python scripts/check_release_tag.py
+
+      - name: Run hassfest
+        uses: home-assistant/actions/hassfest@06749dd8c0b54f350bc69c8752456cee498808a3 # master
+
+      - name: Run HACS validation
+        if: ${{ !github.event.repository.private }}
+        uses: hacs/action@1ebf01c408f29afcb6406bd431bc98fd8cbb15aa # main
+        with:
+          category: integration
+
+  release:
+    name: Create release
+    needs: validate
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.11.29"
+          enable-cache: false
+
+      - name: Classify release
+        id: release_metadata
+        run: uv run python scripts/check_release_tag.py --github-output
+
+      - name: Build integration archive twice and compare
+        run: |
+          uv run python scripts/build_release.py --output release/template_humidifier.zip
+          uv run python scripts/build_release.py --output release/verify.zip
+          cmp release/template_humidifier.zip release/verify.zip
+          rm release/verify.zip
+          sha256sum release/template_humidifier.zip
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          files: release/template_humidifier.zip
+          generate_release_notes: true
+          prerelease: ${{ steps.release_metadata.outputs.prerelease }}
+          make_latest: ${{ steps.release_metadata.outputs.prerelease == 'false' }}
