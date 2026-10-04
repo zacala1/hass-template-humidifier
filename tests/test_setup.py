@@ -164,6 +164,9 @@ def test_manifest_matches_domain() -> None:
     assert manifest["iot_class"] == "local_push"
     assert manifest["requirements"] == []
     assert "humidifier" in cast("list[str]", manifest["dependencies"])
+    # Core template helpers are imported, but template itself must not be set up.
+    assert "template" in cast("list[str]", manifest["after_dependencies"])
+    assert "template" not in cast("list[str]", manifest["dependencies"])
 
 
 async def test_labelled_domain_keys_are_supported(hass: HomeAssistant) -> None:

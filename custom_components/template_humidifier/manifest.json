@@ -1,6 +1,7 @@
 {
   "domain": "template_humidifier",
   "name": "Template Humidifier",
+  "after_dependencies": ["template"],
   "codeowners": ["@zacala1"],
   "dependencies": ["humidifier"],
   "documentation": "https://github.com/zacala1/hass-template-humidifier",
