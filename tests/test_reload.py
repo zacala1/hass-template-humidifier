@@ -11,6 +11,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import (
     async_capture_events,
+    async_mock_service,
     patch_yaml_files,  # pyright: ignore[reportUnknownVariableType]
 )
 
@@ -231,3 +232,86 @@ async def test_reload_keeps_the_values_an_entity_remembered(
     state = get_state(hass)
     assert state.state == "on"
     assert state.attributes["humidity"] == 45
+
+
+def _trigger_yaml(event: str, unique_id: str = "living") -> str:
+    """A trigger based section whose entity renders from the event data."""
+    return f"""{DOMAIN}:
+  - triggers:
+      - trigger: event
+        event_type: {event}
+    actions:
+      - action: test.from_trigger
+    humidifier:
+      - name: "Living Room Dehumidifier"
+        unique_id: {unique_id}
+        device_class: dehumidifier
+        state: "{{{{ trigger.event.data.on }}}}"
+        turn_on: [{{action: test.turn_on}}]
+        turn_off: [{{action: test.turn_off}}]
+        set_humidity: [{{action: test.set_humidity}}]
+"""
+
+
+async def _setup_yaml(hass: HomeAssistant, yaml: str) -> None:
+    with patch_yaml_files({hass_config.YAML_CONFIG_FILE: yaml}):
+        config = await hass_config.async_hass_config_yaml(hass)  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
+    assert await async_setup_component(hass, DOMAIN, config)  # pyright: ignore[reportUnknownArgumentType]
+    await hass.async_block_till_done()
+
+
+async def _fire(hass: HomeAssistant, event: str, *, on: bool) -> None:
+    hass.bus.async_fire(event, {"on": on})
+    await hass.async_block_till_done()
+
+
+async def test_reload_replaces_the_triggers(hass: HomeAssistant) -> None:
+    _ = async_mock_service(hass, "test", "from_trigger")
+    await _setup_yaml(hass, _trigger_yaml("event_a"))
+    await _fire(hass, "event_a", on=True)
+    assert get_state(hass).state == "on"
+
+    await _reload(hass, _trigger_yaml("event_b"))
+    await _fire(hass, "event_a", on=True)
+    assert get_state(hass).state == "unknown"
+
+    await _fire(hass, "event_b", on=True)
+    assert get_state(hass).state == "on"
+
+
+async def test_reload_does_not_leave_the_old_triggers_running(
+    hass: HomeAssistant,
+) -> None:
+    calls = async_mock_service(hass, "test", "from_trigger")
+    await _setup_yaml(hass, _trigger_yaml("same_event"))
+
+    await _reload(hass, _trigger_yaml("same_event"))
+    await _fire(hass, "same_event", on=True)
+
+    assert len(calls) == 1
+
+
+async def test_reload_without_the_domain_detaches_the_triggers(
+    hass: HomeAssistant,
+) -> None:
+    calls = async_mock_service(hass, "test", "from_trigger")
+    await _setup_yaml(hass, _trigger_yaml("gone_event"))
+
+    await _reload(hass, "homeassistant:\n")
+    await _fire(hass, "gone_event", on=True)
+
+    assert not calls
+
+
+async def test_reload_can_switch_a_section_to_state_based(
+    hass: HomeAssistant,
+) -> None:
+    _ = async_mock_service(hass, "test", "from_trigger")
+    await _setup_yaml(hass, _trigger_yaml("switch_event"))
+    await _fire(hass, "switch_event", on=True)
+
+    await _reload(hass, _yaml(_entity("Living Room Dehumidifier", "living")))
+
+    assert get_state(hass).state == "off"
+    await _fire(hass, "switch_event", on=True)
+    assert get_state(hass).state == "off"

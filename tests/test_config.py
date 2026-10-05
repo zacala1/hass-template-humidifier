@@ -10,6 +10,8 @@ from homeassistant.components.humidifier import HumidifierDeviceClass
 from .conftest import entity_config, mode_config
 
 if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
+    from homeassistant.helpers.script_variables import ScriptVariables
     from homeassistant.helpers.template import Template
     from homeassistant.helpers.typing import ConfigType
 
@@ -118,7 +120,6 @@ async def test_rejects_unknown_device_class(
 @pytest.mark.parametrize(
     ("key", "value"),
     [
-        ("variables", {"power": "switch.power"}),
         ("attributes", {"foo": "{{ 1 }}"}),
     ],
 )
@@ -152,8 +153,6 @@ async def test_rejects_legacy_key_names(key: str) -> None:
 @pytest.mark.parametrize(
     ("section_key", "value"),
     [
-        ("triggers", [{"trigger": "event", "event_type": "x"}]),
-        ("variables", {"a": 1}),
         ("sensor", [{"name": "x", "state": "1"}]),
     ],
 )
@@ -349,3 +348,114 @@ async def test_accepts_optimistic(value: object, expected: object) -> None:
 async def test_rejects_a_non_boolean_optimistic() -> None:
     with pytest.raises(vol.Invalid, match="optimistic"):
         _ = _validate(entity_config(optimistic="maybe"))
+
+
+# --- triggers, conditions, actions and variables (0.4) ------------------------
+
+TRIGGERS = [{"trigger": "event", "event_type": "my_event"}]
+
+
+async def test_accepts_a_trigger_section() -> None:
+    section = _section(
+        {
+            "triggers": TRIGGERS,
+            "conditions": [{"condition": "template", "value_template": "{{ true }}"}],
+            "actions": [{"action": "test.run"}],
+            "variables": {"offset": 1},
+            "humidifier": [entity_config()],
+        }
+    )
+
+    [trigger] = cast("list[ConfigType]", section["triggers"])
+    assert trigger["platform"] == "event"
+    assert {"conditions", "actions", "variables"} <= section.keys()
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("conditions", [{"condition": "template", "value_template": "{{ true }}"}]),
+        ("actions", [{"action": "test.run"}]),
+    ],
+)
+async def test_conditions_and_actions_need_triggers(key: str, value: object) -> None:
+    with pytest.raises(vol.Invalid, match=f"{key} needs triggers"):
+        _ = _section({key: value, "humidifier": [entity_config()]})
+
+
+@pytest.mark.parametrize("key", ["trigger", "condition", "action"])
+async def test_singular_section_keys_are_rejected(key: str) -> None:
+    with pytest.raises(vol.Invalid, match=key):
+        _ = _section({key: [], "humidifier": [entity_config()]})
+
+
+async def test_malformed_triggers_are_rejected() -> None:
+    with pytest.raises(vol.Invalid, match="triggers"):
+        _ = _section(
+            {"triggers": [{"event_type": "x"}], "humidifier": [entity_config()]}
+        )
+
+
+async def test_section_variables_move_into_the_entities(hass: HomeAssistant) -> None:
+    section = _section(
+        {
+            "variables": {"a": 1, "b": 2},
+            "humidifier": [entity_config(), entity_config()],
+        }
+    )
+
+    assert "variables" not in section
+    for entity in cast("list[ConfigType]", section["humidifier"]):
+        rendered = cast("ScriptVariables", entity["variables"]).async_render(hass, {})
+        assert rendered == {"a": 1, "b": 2}
+
+
+async def test_entity_variables_win_when_merged(hass: HomeAssistant) -> None:
+    [entity] = _entities(
+        entity_config(variables={"b": 20, "c": 3}),
+        variables={"a": 1, "b": 2},
+    )
+
+    rendered = cast("ScriptVariables", entity["variables"]).async_render(hass, {})
+
+    assert rendered == {"a": 1, "b": 20, "c": 3}
+
+
+async def test_trigger_sections_keep_their_variables() -> None:
+    section = _section(
+        {
+            "triggers": TRIGGERS,
+            "variables": {"a": 1},
+            "humidifier": [entity_config()],
+        }
+    )
+
+    [entity] = cast("list[ConfigType]", section["humidifier"])
+    assert "variables" in section
+    assert "variables" not in entity
+
+
+@pytest.mark.parametrize("variables", ["text", ["a"], 5])
+async def test_rejects_variables_that_are_not_a_mapping(variables: object) -> None:
+    with pytest.raises(vol.Invalid, match="variables"):
+        _ = _entities(entity_config(variables=variables))
+    with pytest.raises(vol.Invalid, match="variables"):
+        _ = _entities(entity_config(), variables=variables)
+
+
+async def test_a_non_mapping_entity_is_rejected_after_merging() -> None:
+    with pytest.raises(vol.Invalid):
+        _ = _section({"variables": {"a": 1}, "humidifier": ["nope"]})
+
+
+@pytest.mark.parametrize("section", ["text", 5, None, ["humidifier"]])
+async def test_a_section_must_be_a_mapping(section: object) -> None:
+    with pytest.raises(vol.Invalid):
+        _ = _section(section)
+
+
+async def test_non_mapping_entity_variables_are_not_merged_over() -> None:
+    with pytest.raises(vol.Invalid, match="variables"):
+        _ = _section(
+            {"variables": {"a": 1}, "humidifier": [entity_config(variables="text")]}
+        )

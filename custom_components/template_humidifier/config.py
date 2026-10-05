@@ -1,182 +1,103 @@
 """Configuration validation for the ``template_humidifier`` domain.
 
-The shape mirrors the modern Home Assistant ``template:`` integration: a list
-of sections, each holding a ``humidifier`` list of entity definitions.
+The shape mirrors the modern Home Assistant ``template:`` integration: a list of
+sections, each holding a ``humidifier`` list of entity definitions. A section
+can also have ``triggers`` (with ``conditions`` and ``actions``) and
+``variables``.
 """
 
+import logging
 from typing import TYPE_CHECKING, Final, cast
 
 import voluptuous as vol
-from homeassistant.components.humidifier import DEVICE_CLASSES_SCHEMA
-from homeassistant.components.humidifier.const import DOMAIN as HUMIDIFIER_DOMAIN
-from homeassistant.components.template.const import CONF_AVAILABILITY
-from homeassistant.components.template.schemas import (
-    make_template_entity_base_schema,
-)
 from homeassistant.config import (
     async_log_schema_error,  # pyright: ignore[reportUnknownVariableType]
     config_without_domain,
 )
 from homeassistant.const import (
-    CONF_DEVICE_CLASS,
-    CONF_OPTIMISTIC,
-    CONF_STATE,
+    CONF_ACTIONS,
+    CONF_CONDITIONS,
+    CONF_TRIGGERS,
     CONF_UNIQUE_ID,
+    CONF_VARIABLES,
 )
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.condition import async_validate_conditions_config
+from homeassistant.helpers.trigger import async_validate_trigger_config
 from homeassistant.setup import async_notify_setup_error
 
-from .const import (
-    CONF_ACTION,
-    CONF_CURRENT_HUMIDITY,
-    CONF_HUMIDIFIER,
-    CONF_MAX_HUMIDITY,
-    CONF_MIN_HUMIDITY,
-    CONF_MODE,
-    CONF_MODES,
-    CONF_SET_HUMIDITY,
-    CONF_SET_MODE,
-    CONF_TARGET_HUMIDITY,
-    CONF_TARGET_HUMIDITY_STEP,
-    CONF_TURN_OFF,
-    CONF_TURN_ON,
-    DEFAULT_NAME,
-    DOMAIN,
-)
+from .const import CONF_HUMIDIFIER, DOMAIN
+from .schema import HUMIDIFIER_YAML_SCHEMA
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
-    from homeassistant.helpers.template import Template
     from homeassistant.helpers.typing import ConfigType
+
+_LOGGER = logging.getLogger(__name__)
 
 # Home Assistant needs this hint to merge ``packages`` that each define
 # ``template_humidifier`` instead of rejecting the duplicate key.
 PACKAGE_MERGE_HINT: Final = "list"
 
-_MAX_HUMIDITY: Final = 100
 
+def _merge_section_variables(section: object) -> object:
+    """Hand a state based section's ``variables`` down to each of its entities.
 
-def _static_number(config: ConfigType, key: str) -> float | None:
-    """Return the numeric value of a static option, or None for a template."""
-    template = cast("Template | None", config.get(key))
-    if template is None or not template.is_static:
-        return None
-    try:
-        return float(template.template)
-    except ValueError:
-        message = f"{key} must be a number or a template, got {template.template!r}"
-        raise vol.Invalid(message, path=[key]) from None
+    The entity's own variables win. A trigger based section keeps them: they are
+    rendered when the trigger fires, before its entities see them.
+    """
+    if not isinstance(section, dict):
+        return section
+    raw = cast("ConfigType", section)
+    variables = raw.get(CONF_VARIABLES)
+    if CONF_TRIGGERS in raw or not isinstance(variables, dict):
+        return cast("object", section)
 
-
-def _validate_limits(config: ConfigType) -> ConfigType:
-    """Reject static humidity limits and steps that cannot work."""
-    limits: dict[str, float] = {}
-    for key in (CONF_MIN_HUMIDITY, CONF_MAX_HUMIDITY):
-        if (value := _static_number(config, key)) is None:
+    del raw[CONF_VARIABLES]
+    for entity in cast("list[object]", cv.ensure_list(raw.get(CONF_HUMIDIFIER))):
+        if not isinstance(entity, dict):
             continue
-        if not 0 <= value <= _MAX_HUMIDITY:
-            message = f"{key} must be between 0 and {_MAX_HUMIDITY}, got {value:g}"
+        own = cast("ConfigType", entity).get(CONF_VARIABLES)
+        if own is None:
+            cast("ConfigType", entity)[CONF_VARIABLES] = variables
+        elif isinstance(own, dict):
+            cast("ConfigType", entity)[CONF_VARIABLES] = {**variables, **own}
+    return cast("object", section)
+
+
+def _require_triggers(section: ConfigType) -> ConfigType:
+    """Reject ``conditions`` and ``actions`` that no trigger would ever run."""
+    for key in (CONF_CONDITIONS, CONF_ACTIONS):
+        if key in section and CONF_TRIGGERS not in section:
+            message = f"{key} needs {CONF_TRIGGERS}"
             raise vol.Invalid(message, path=[key])
-        limits[key] = value
-
-    minimum = limits.get(CONF_MIN_HUMIDITY)
-    maximum = limits.get(CONF_MAX_HUMIDITY)
-    if minimum is not None and maximum is not None and minimum > maximum:
-        message = (
-            f"{CONF_MIN_HUMIDITY} ({minimum:g}) must not be greater than "
-            f"{CONF_MAX_HUMIDITY} ({maximum:g})"
-        )
-        raise vol.Invalid(message, path=[CONF_MIN_HUMIDITY])
-
-    step = _static_number(config, CONF_TARGET_HUMIDITY_STEP)
-    if step is not None and not 0 < step <= _MAX_HUMIDITY:
-        message = (
-            f"{CONF_TARGET_HUMIDITY_STEP} must be greater than 0 and at most "
-            f"{_MAX_HUMIDITY}, got {step:g}"
-        )
-        raise vol.Invalid(message, path=[CONF_TARGET_HUMIDITY_STEP])
-
-    return config
+    return section
 
 
-def _modes(value: object) -> list[str] | Template:
-    """Validate ``modes``: a non-empty list of unique names, or a template."""
-    if isinstance(value, list | tuple):
-        modes = [cv.string(item) for item in cast("list[object]", value)]
-        if not modes:
-            message = f"{CONF_MODES} must not be empty"
-            raise vol.Invalid(message)
-        if len(set(modes)) != len(modes):
-            message = f"{CONF_MODES} must not contain duplicates"
-            raise vol.Invalid(message)
-        return modes
-
-    template = cv.template(value)
-    if template.is_static:
-        message = f"{CONF_MODES} must be a list or a template that renders a list"
-        raise vol.Invalid(message)
-    return template
-
-
-def _validate_mode(config: ConfigType) -> ConfigType:
-    """Reject a current ``mode`` that has no ``modes`` to belong to."""
-    if CONF_MODE in config and CONF_MODES not in config:
-        message = f"{CONF_MODE} requires {CONF_MODES} and {CONF_SET_MODE}"
-        raise vol.Invalid(message, path=[CONF_MODE])
-    return config
-
-
-_MODES_GROUP: Final = "modes"
-_MODES_TOGETHER: Final = f"{CONF_MODES} and {CONF_SET_MODE} must be configured together"
-
-HUMIDIFIER_YAML_SCHEMA: Final = vol.All(
-    vol.Schema(
-        {
-            vol.Required(CONF_DEVICE_CLASS): DEVICE_CLASSES_SCHEMA,
-            vol.Optional(CONF_STATE): cv.template,
-            vol.Optional(CONF_CURRENT_HUMIDITY): cv.template,
-            vol.Optional(CONF_TARGET_HUMIDITY): cv.template,
-            vol.Optional(CONF_MIN_HUMIDITY): cv.template,
-            vol.Optional(CONF_MAX_HUMIDITY): cv.template,
-            vol.Optional(CONF_TARGET_HUMIDITY_STEP): cv.template,
-            vol.Optional(CONF_AVAILABILITY): cv.template,
-            vol.Required(CONF_TURN_ON): cv.SCRIPT_SCHEMA,
-            vol.Required(CONF_TURN_OFF): cv.SCRIPT_SCHEMA,
-            vol.Required(CONF_SET_HUMIDITY): cv.SCRIPT_SCHEMA,
-            vol.Optional(CONF_MODE): cv.template,
-            vol.Inclusive(CONF_MODES, _MODES_GROUP, msg=_MODES_TOGETHER): _modes,
-            vol.Inclusive(
-                CONF_SET_MODE, _MODES_GROUP, msg=_MODES_TOGETHER
-            ): cv.SCRIPT_SCHEMA,
-            vol.Optional(CONF_ACTION): cv.template,
-            vol.Optional(CONF_OPTIMISTIC): cv.boolean,
-        }
-    ).extend(  # pyright: ignore[reportUnknownMemberType]
-        make_template_entity_base_schema(  # pyright: ignore[reportAny]
-            HUMIDIFIER_DOMAIN, DEFAULT_NAME
-        ).schema
-    ),
-    _validate_limits,
-    _validate_mode,
-)
-
-CONFIG_SECTION_SCHEMA: Final = vol.Schema(
-    {
-        vol.Optional(CONF_UNIQUE_ID): cv.string,
-        vol.Required(CONF_HUMIDIFIER): vol.All(
-            cv.ensure_list, [HUMIDIFIER_YAML_SCHEMA]
+def _section_schema(entities: object) -> vol.All:
+    """Return the schema of a section whose entities are checked by ``entities``."""
+    return vol.All(
+        _merge_section_variables,
+        vol.Schema(
+            {
+                vol.Optional(CONF_UNIQUE_ID): cv.string,
+                vol.Optional(CONF_VARIABLES): cv.SCRIPT_VARIABLES_SCHEMA,
+                vol.Optional(CONF_TRIGGERS): cv.TRIGGER_SCHEMA,
+                vol.Optional(CONF_CONDITIONS): cv.CONDITIONS_SCHEMA,
+                vol.Optional(CONF_ACTIONS): cv.SCRIPT_SCHEMA,
+                vol.Required(CONF_HUMIDIFIER): vol.All(cv.ensure_list, [entities]),
+            }
         ),
-    }
-)
+        _require_triggers,
+    )
+
+
+CONFIG_SECTION_SCHEMA: Final = _section_schema(HUMIDIFIER_YAML_SCHEMA)
 
 # The same section, but leaving the entities unvalidated so that each one can be
 # checked (and dropped) on its own.
-_SECTION_SHELL_SCHEMA: Final = vol.Schema(
-    {
-        vol.Optional(CONF_UNIQUE_ID): cv.string,
-        vol.Required(CONF_HUMIDIFIER): vol.All(cv.ensure_list, [dict]),
-    }
-)
+_SECTION_SHELL_SCHEMA: Final = _section_schema(dict)
 
 
 def _is_domain_key(key: str) -> bool:
@@ -188,12 +109,35 @@ def _is_domain_key(key: str) -> bool:
     return key == DOMAIN or (key.startswith(DOMAIN) and len(key.split()) > 1)
 
 
-def _validate_section(hass: HomeAssistant, section: ConfigType) -> ConfigType | None:
+def _report(hass: HomeAssistant, err: vol.Invalid, config: ConfigType) -> None:
+    async_log_schema_error(err, DOMAIN, config, hass)
+    async_notify_setup_error(hass, DOMAIN)
+
+
+async def _async_validate_section(
+    hass: HomeAssistant, section: ConfigType
+) -> ConfigType | None:
     """Validate a section, dropping only the entities that are invalid."""
     try:
         shell = cast("ConfigType", _SECTION_SHELL_SCHEMA(section))
     except vol.Invalid as err:
-        async_log_schema_error(err, DOMAIN, section, hass)
+        _report(hass, err, section)
+        return None
+
+    try:
+        if CONF_TRIGGERS in shell:
+            shell[CONF_TRIGGERS] = await async_validate_trigger_config(
+                hass, cast("list[ConfigType]", shell[CONF_TRIGGERS])
+            )
+        if CONF_CONDITIONS in shell:
+            shell[CONF_CONDITIONS] = await async_validate_conditions_config(
+                hass, cast("list[ConfigType]", shell[CONF_CONDITIONS])
+            )
+    except vol.Invalid as err:
+        _report(hass, err, section)
+        return None
+    except HomeAssistantError as err:
+        _LOGGER.error("Invalid %s section, skipping it: %s", DOMAIN, err)  # noqa: TRY400
         async_notify_setup_error(hass, DOMAIN)
         return None
 
@@ -202,8 +146,7 @@ def _validate_section(hass: HomeAssistant, section: ConfigType) -> ConfigType | 
         try:
             entities.append(cast("ConfigType", HUMIDIFIER_YAML_SCHEMA(entity)))
         except vol.Invalid as err:
-            async_log_schema_error(err, DOMAIN, entity, hass)
-            async_notify_setup_error(hass, DOMAIN)
+            _report(hass, err, entity)
 
     return {**shell, CONF_HUMIDIFIER: entities}
 
@@ -220,9 +163,11 @@ async def async_validate_config(hass: HomeAssistant, config: ConfigType) -> Conf
             "list[ConfigType]", cv.ensure_list(cast("object", config[key]))
         )
         sections.extend(
-            validated
-            for section in raw_sections
-            if (validated := _validate_section(hass, section)) is not None
+            [
+                section
+                for raw in raw_sections
+                if (section := await _async_validate_section(hass, raw)) is not None
+            ]
         )
 
     if not found:

@@ -38,7 +38,9 @@ from .conftest import (
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from custom_components.template_humidifier.entity import TemplateHumidifier
+    from custom_components.template_humidifier.entity import (
+        AbstractTemplateHumidifier,
+    )
     from homeassistant.core import HomeAssistant
 
 OPTIONS = "{{ state_attr('select.dehumidifier_mode', 'options') }}"
@@ -226,7 +228,7 @@ async def test_the_entity_reports_what_to_store(
         )
 
     entity = cast(
-        "TemplateHumidifier | None",
+        "AbstractTemplateHumidifier | None",
         hass.data[DATA_COMPONENT].get_entity(HUMIDIFIER_ID),
     )
     assert entity is not None

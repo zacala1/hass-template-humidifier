@@ -1,4 +1,4 @@
-"""The template humidifier entity."""
+"""The behaviour shared by state based and trigger based humidifiers."""
 
 from typing import TYPE_CHECKING, cast, override
 
@@ -10,7 +10,7 @@ from homeassistant.components.humidifier.const import (
     HumidifierEntityFeature,
 )
 from homeassistant.components.template import validators as template_validators
-from homeassistant.components.template.template_entity import TemplateEntity
+from homeassistant.components.template.entity import AbstractTemplateEntity
 from homeassistant.const import CONF_DEVICE_CLASS, CONF_OPTIMISTIC, CONF_STATE
 from homeassistant.core import callback
 from homeassistant.exceptions import ServiceValidationError, TemplateError
@@ -30,7 +30,6 @@ from .const import (
     CONF_TARGET_HUMIDITY_STEP,
     CONF_TURN_OFF,
     CONF_TURN_ON,
-    DEFAULT_NAME,
     DOMAIN,
     SCRIPT_FIELDS,
 )
@@ -39,14 +38,13 @@ from .validators import Validator, humidity_number, positive_number
 
 if TYPE_CHECKING:
     from homeassistant.components.humidifier import HumidifierDeviceClass
-    from homeassistant.core import HomeAssistant
     from homeassistant.helpers.typing import ConfigType
 
 
 # The three Home Assistant bases declare several members differently; the same
 # combination is used by Core's own template entities.
-class TemplateHumidifier(  # pyright: ignore[reportIncompatibleVariableOverride]
-    TemplateEntity, HumidifierEntity, RestoreEntity
+class AbstractTemplateHumidifier(  # pyright: ignore[reportIncompatibleVariableOverride, reportImplicitAbstractClass]
+    AbstractTemplateEntity, HumidifierEntity, RestoreEntity
 ):
     """A humidifier or dehumidifier assembled from existing entities."""
 
@@ -55,14 +53,10 @@ class TemplateHumidifier(  # pyright: ignore[reportIncompatibleVariableOverride]
     _entity_id_format: str = ENTITY_ID_FORMAT
     _state_option: str | None = CONF_STATE
 
-    def __init__(
-        self,
-        hass: HomeAssistant,
-        config: ConfigType,
-        unique_id: str | None,
-    ) -> None:
-        """Initialize the humidifier."""
-        TemplateEntity.__init__(self, hass, config, unique_id)
+    # The super init is not called: ``TemplateEntity`` and ``TriggerEntity`` call
+    # ``AbstractTemplateEntity.__init__`` themselves, and it must not run twice.
+    def __init__(self, name: str, config: ConfigType) -> None:  # pyright: ignore[reportMissingSuperCall]
+        """Set up the templates and actions of the humidifier."""
         # Home Assistant declares this attribute as ``str`` on Entity but as the
         # narrower enum on HumidifierEntity, which no annotation can satisfy.
         self._attr_device_class: HumidifierDeviceClass | None = cast(  # pyright: ignore[reportIncompatibleVariableOverride]
@@ -96,7 +90,6 @@ class TemplateHumidifier(  # pyright: ignore[reportIncompatibleVariableOverride]
             ),
         )
 
-        name = self._attr_name or DEFAULT_NAME
         for field in SCRIPT_FIELDS:
             if field in config:
                 self.add_script(

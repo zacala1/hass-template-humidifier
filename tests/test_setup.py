@@ -206,7 +206,7 @@ async def test_invalid_section_shape_is_dropped_but_other_sections_load(
 ) -> None:
     config: ConfigType = {
         DOMAIN: [
-            {"humidifier": [entity_config()], "triggers": []},
+            {"humidifier": [entity_config()], "sensor": []},
             {"humidifier": [_bedroom()]},
         ]
     }

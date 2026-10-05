@@ -7,10 +7,18 @@ import subprocess
 import tomllib
 import zipfile
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
+from custom_components.template_humidifier.config import CONFIG_SECTION_SCHEMA
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.util.yaml import (
+    parse_yaml,  # pyright: ignore[reportUnknownVariableType]
+)
 from scripts import build_release, check_release_tag
+
+if TYPE_CHECKING:
+    from homeassistant.helpers.typing import ConfigType
 
 ROOT = Path(__file__).resolve().parents[1]
 INTEGRATION = ROOT / "custom_components" / "template_humidifier"
@@ -503,3 +511,31 @@ def test_readme_documents_every_supported_option() -> None:
     for option in options:
         assert f"`{option}`" in readme, option
     assert "template_humidifier.reload" in readme
+
+
+def _readme_configurations() -> list[ConfigType]:
+    """Return the complete ``template_humidifier`` examples of the README."""
+    blocks = cast(
+        "list[str]",
+        re.findall(r"```yaml\n(.*?)```", _read(ROOT / "README.md"), re.DOTALL),
+    )
+    found: list[ConfigType] = []
+    for block in blocks:
+        if "# ..." in block or not block.startswith("template_humidifier:"):
+            continue
+        try:
+            parsed = cast("ConfigType | None", parse_yaml(block))
+        except HomeAssistantError:  # for example an ``!include`` example
+            continue
+        if parsed is not None:
+            found.append(parsed)
+    return found
+
+
+def test_the_readme_examples_are_valid_configuration() -> None:
+    configurations = _readme_configurations()
+
+    assert len(configurations) >= 3
+    for configuration in configurations:
+        for section in cast("list[ConfigType]", configuration["template_humidifier"]):
+            _ = cast("ConfigType", CONFIG_SECTION_SCHEMA(section))

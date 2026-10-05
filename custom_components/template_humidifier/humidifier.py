@@ -5,8 +5,10 @@ from typing import TYPE_CHECKING, cast
 
 import voluptuous as vol
 from homeassistant.components.humidifier.const import DOMAIN as HUMIDIFIER_DOMAIN
+from homeassistant.components.template.template_entity import TemplateEntity
+from homeassistant.components.template.trigger_entity import TriggerEntity
 from homeassistant.const import CONF_NAME, CONF_UNIQUE_ID
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, TemplateError
 from homeassistant.helpers.entity_platform import (
     async_create_platform_config_not_supported_issue,
 )
@@ -17,14 +19,59 @@ from voluptuous.humanize import (
 )
 
 from .const import DEFAULT_NAME, DOMAIN, ENTITIES, SCRIPT_FIELDS
-from .entity import TemplateHumidifier
+from .entity import AbstractTemplateHumidifier
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
     from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
+    from .coordinator import HumidifierTriggerCoordinator
+
 _LOGGER = logging.getLogger(__name__)
+
+COORDINATOR = "coordinator"
+
+
+class StateHumidifier(  # pyright: ignore[reportUnsafeMultipleInheritance]
+    TemplateEntity, AbstractTemplateHumidifier
+):
+    """A humidifier whose templates follow the state machine."""
+
+    _attr_should_poll: bool = False
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        config: ConfigType,
+        unique_id: str | None,
+    ) -> None:
+        """Initialize the humidifier."""
+        TemplateEntity.__init__(self, hass, config, unique_id)
+        AbstractTemplateHumidifier.__init__(
+            self, self._attr_name or DEFAULT_NAME, config
+        )
+
+
+class TriggerHumidifier(  # pyright: ignore[reportUnsafeMultipleInheritance, reportIncompatibleVariableOverride]
+    TriggerEntity, AbstractTemplateHumidifier
+):
+    """A humidifier whose templates are rendered each time a trigger fires."""
+
+    domain: str = HUMIDIFIER_DOMAIN
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        coordinator: HumidifierTriggerCoordinator,
+        config: ConfigType,
+    ) -> None:
+        """Initialize the humidifier."""
+        TriggerEntity.__init__(self, hass, coordinator, config)  # pyright: ignore[reportUnknownMemberType]
+        rendered = cast("dict[str, object]", self._rendered)
+        name = cast("str", rendered.get("name", DEFAULT_NAME))
+        self._attr_name = name  # pyright: ignore[reportUnannotatedClassAttribute]
+        AbstractTemplateHumidifier.__init__(self, name, config)
 
 
 async def async_setup_platform(
@@ -44,16 +91,41 @@ async def async_setup_platform(
         )
         return
 
+    coordinator = cast(
+        "HumidifierTriggerCoordinator | None", discovery_info.get(COORDINATOR)
+    )
     prefix = cast("str | None", discovery_info.get(CONF_UNIQUE_ID))
-    entities: list[TemplateHumidifier] = []
+    entities: list[AbstractTemplateHumidifier] = []
     for entity_config in cast("list[ConfigType]", discovery_info[ENTITIES]):
         if (validated := await _async_validate_scripts(hass, entity_config)) is None:
             continue
-        unique_id = cast("str | None", validated.get(CONF_UNIQUE_ID))
-        if unique_id and prefix:
-            unique_id = f"{prefix}-{unique_id}"
-        entities.append(TemplateHumidifier(hass, validated, unique_id))
+        try:
+            entities.append(_create_entity(hass, coordinator, prefix, validated))
+        except TemplateError as err:
+            # Variables are rendered while the entity is built, before it has
+            # an entity ID, so one that uses ``this`` ends up here.
+            _LOGGER.error(  # noqa: TRY400
+                "%s could not be created, skipping it: %s",
+                _describe(entity_config),
+                err,
+            )
     async_add_entities(entities)
+
+
+def _create_entity(
+    hass: HomeAssistant,
+    coordinator: HumidifierTriggerCoordinator | None,
+    prefix: str | None,
+    config: ConfigType,
+) -> AbstractTemplateHumidifier:
+    """Build the state based or trigger based entity for ``config``."""
+    if coordinator is not None:
+        # The coordinator adds its own unique ID prefix.
+        return TriggerHumidifier(hass, coordinator, config)
+    unique_id = cast("str | None", config.get(CONF_UNIQUE_ID))
+    if unique_id and prefix:
+        unique_id = f"{prefix}-{unique_id}"
+    return StateHumidifier(hass, config, unique_id)
 
 
 async def _async_validate_scripts(

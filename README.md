@@ -98,6 +98,7 @@ template_humidifier: !include template_humidifiers.yaml
 | `modes` | no | List of mode names, or a template rendering a list. Needs `set_mode`. |
 | `set_mode` | no | Actions run by `humidifier.set_mode`. Needs `modes`. |
 | `action` | no | Template rendering what the device is doing, see [Action](#action). |
+| `variables` | no | Values every template and action of the entity can use, see [Variables](#variables). |
 | `optimistic` | no | `true` remembers every command result, `false` never assumes the power. See [Remembered values](#remembered-values). |
 | `min_humidity` | no | Number or template, default `0`. |
 | `max_humidity` | no | Number or template, default `100`. |
@@ -154,6 +155,108 @@ an error in the log. Home Assistant shows `off` while the entity is off.
           {% elif is_state('binary_sensor.dehumidifier_compressor', 'on') %}drying
           {% else %}idle{% endif %}
 ```
+
+### Variables
+
+`variables` define values once and use them in every template and action of the
+entity. A value can itself be a template.
+
+```yaml
+template_humidifier:
+  - variables:
+      prefix: dehumidifier
+    humidifier:
+      - name: "Living Room Dehumidifier"
+        variables:
+          power_entity: "switch.{{ prefix }}_power"
+          target_entity: "number.{{ prefix }}_target"
+        device_class: dehumidifier
+        state: "{{ is_state(power_entity, 'on') }}"
+        current_humidity: "{{ states('sensor.dehumidifier_humidity') }}"
+        target_humidity: "{{ states(target_entity) }}"
+        turn_on:
+          - action: switch.turn_on
+            target:
+              entity_id: "{{ power_entity }}"
+        turn_off:
+          - action: switch.turn_off
+            target:
+              entity_id: "{{ power_entity }}"
+        set_humidity:
+          - action: number.set_value
+            target:
+              entity_id: "{{ target_entity }}"
+            data:
+              value: "{{ humidity }}"
+```
+
+Variables on the section are handed to every entity in it. An entity's own
+variables win. They can be used in all templates, including `availability`,
+`name` and `icon`, and in the actions.
+
+Variables are rendered before the entity has an entity ID, so they cannot use
+`this`. An entity whose variables fail to render is skipped with an error in the
+log; the other entities are not affected. Templates and actions can still use
+`this`.
+
+### Trigger based humidifiers
+
+A section can have `triggers`. The entities of that section then update only
+when a trigger fires, using the data of the trigger, in the same way as trigger
+based entities of the `template:` integration.
+
+```yaml
+template_humidifier:
+  - triggers:
+      - trigger: mqtt
+        topic: dehumidifier/state
+    conditions:
+      - condition: template
+        value_template: "{{ trigger.payload_json is defined }}"
+    actions:
+      - variables:
+          measured: "{{ trigger.payload_json.humidity }}"
+    humidifier:
+      - name: "Living Room Dehumidifier"
+        unique_id: living_room_dehumidifier
+        device_class: dehumidifier
+        state: "{{ trigger.payload_json.power == 'on' }}"
+        current_humidity: "{{ measured }}"
+        turn_on:
+          - action: mqtt.publish
+            data:
+              topic: dehumidifier/set
+              payload: "on"
+        turn_off:
+          - action: mqtt.publish
+            data:
+              topic: dehumidifier/set
+              payload: "off"
+        set_humidity:
+          - action: mqtt.publish
+            data:
+              topic: dehumidifier/target
+              payload: "{{ humidity }}"
+```
+
+- `conditions` decide whether an update happens. `actions` run first, and the
+  variables they define (for example with a `variables` step, as `measured` above)
+  are available to the templates.
+- `trigger` is available in the templates. The section's `variables` are rendered
+  when the trigger fires and the entity's own `variables` after them. Do not name
+  one `humidity` or `mode` if a command also needs the value it is given.
+- Until the first trigger fires the entity is unknown. Nothing is rendered before
+  that, and the triggers only start once Home Assistant has started.
+- If the `state` template fails the entity becomes unavailable and recovers with
+  the next trigger. A failing reading becomes missing.
+- Commands run with the variables of the last trigger, so they can only use them
+  after it has fired once. `set_humidity` and `set_mode` also get `humidity` and
+  `mode`.
+- [Remembered values](#remembered-values) work the same way and are restored
+  before the first trigger.
+- The singular `trigger`, `condition` and `action` keys are not accepted; use
+  `triggers`, `conditions` and `actions`. `conditions` and `actions` need
+  `triggers`.
 
 ### Remembered values
 
@@ -222,8 +325,9 @@ and creates them again. It fires the `event_template_humidifier_reloaded` event.
 
 ## Limitations
 
-- `variables` and trigger-based entities are not supported yet. They are
-  rejected rather than ignored.
+- Triggers are not part of `variables`: a trigger based section's `variables`
+  are rendered per trigger, while a state based section's are rendered once
+  when its entities are created.
 - With a `state` template and no `optimistic`, `turn_on` and `turn_off` do not
   change the entity by themselves; it follows the source entities.
 - A `mode` template that was valid when it rendered is not checked again if only
@@ -255,4 +359,6 @@ in [PROJECT_PLAN.md](PROJECT_PLAN.md).
 (`mode`/`modes`/`set_mode`)와 동작 상태(`action`)를 지원하고, 설정을 바꾼 뒤에는
 `template_humidifier.reload` 동작으로 재시작 없이 다시 불러올 수 있습니다.
 `state`, `target_humidity`, `mode` 템플릿을 생략하면 마지막 명령값을 기억하고
-(`optimistic`), 재시작 후에도 복원합니다. 현재는 프리릴리즈입니다.
+(`optimistic`), 재시작 후에도 복원합니다. `variables`로 값을 한 번 정의해 모든 템플릿과 액션에서 쓸 수 있고, 섹션에
+`triggers`를 두면 트리거가 발생할 때만 갱신되는 트리거 기반 엔티티가 됩니다.
+현재는 프리릴리즈입니다.
