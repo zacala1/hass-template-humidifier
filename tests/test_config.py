@@ -97,15 +97,7 @@ async def test_accepts_section_unique_id() -> None:
 
 @pytest.mark.parametrize(
     "key",
-    [
-        "device_class",
-        "state",
-        "current_humidity",
-        "target_humidity",
-        "turn_on",
-        "turn_off",
-        "set_humidity",
-    ],
+    ["device_class", "turn_on", "turn_off", "set_humidity"],
 )
 async def test_rejects_missing_required_key(key: str) -> None:
     config = entity_config()
@@ -126,7 +118,6 @@ async def test_rejects_unknown_device_class(
 @pytest.mark.parametrize(
     ("key", "value"),
     [
-        ("optimistic", True),
         ("variables", {"power": "switch.power"}),
         ("attributes", {"foo": "{{ 1 }}"}),
     ],
@@ -331,3 +322,30 @@ async def test_accepts_action_template() -> None:
 async def test_rejects_malformed_set_mode_actions() -> None:
     with pytest.raises(vol.Invalid, match="set_mode"):
         _ = _validate(mode_config(set_mode=[{"not_an_action": 1}]))
+
+
+# --- optimistic state (0.3) ---------------------------------------------------
+
+
+@pytest.mark.parametrize("key", ["state", "current_humidity", "target_humidity"])
+async def test_state_and_readings_are_optional(key: str) -> None:
+    config = entity_config()
+    del config[key]
+
+    [entity] = _entities(config)
+
+    assert key not in entity
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"), [(True, True), (False, False), ("yes", True), ("off", False)]
+)
+async def test_accepts_optimistic(value: object, expected: object) -> None:
+    [entity] = _entities(entity_config(optimistic=value))
+
+    assert entity["optimistic"] is expected
+
+
+async def test_rejects_a_non_boolean_optimistic() -> None:
+    with pytest.raises(vol.Invalid, match="optimistic"):
+        _ = _validate(entity_config(optimistic="maybe"))

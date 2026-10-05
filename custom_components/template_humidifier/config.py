@@ -17,7 +17,12 @@ from homeassistant.config import (
     async_log_schema_error,  # pyright: ignore[reportUnknownVariableType]
     config_without_domain,
 )
-from homeassistant.const import CONF_DEVICE_CLASS, CONF_STATE, CONF_UNIQUE_ID
+from homeassistant.const import (
+    CONF_DEVICE_CLASS,
+    CONF_OPTIMISTIC,
+    CONF_STATE,
+    CONF_UNIQUE_ID,
+)
 from homeassistant.helpers import config_validation as cv
 from homeassistant.setup import async_notify_setup_error
 
@@ -128,9 +133,9 @@ HUMIDIFIER_YAML_SCHEMA: Final = vol.All(
     vol.Schema(
         {
             vol.Required(CONF_DEVICE_CLASS): DEVICE_CLASSES_SCHEMA,
-            vol.Required(CONF_STATE): cv.template,
-            vol.Required(CONF_CURRENT_HUMIDITY): cv.template,
-            vol.Required(CONF_TARGET_HUMIDITY): cv.template,
+            vol.Optional(CONF_STATE): cv.template,
+            vol.Optional(CONF_CURRENT_HUMIDITY): cv.template,
+            vol.Optional(CONF_TARGET_HUMIDITY): cv.template,
             vol.Optional(CONF_MIN_HUMIDITY): cv.template,
             vol.Optional(CONF_MAX_HUMIDITY): cv.template,
             vol.Optional(CONF_TARGET_HUMIDITY_STEP): cv.template,
@@ -144,6 +149,7 @@ HUMIDIFIER_YAML_SCHEMA: Final = vol.All(
                 CONF_SET_MODE, _MODES_GROUP, msg=_MODES_TOGETHER
             ): cv.SCRIPT_SCHEMA,
             vol.Optional(CONF_ACTION): cv.template,
+            vol.Optional(CONF_OPTIMISTIC): cv.boolean,
         }
     ).extend(  # pyright: ignore[reportUnknownMemberType]
         make_template_entity_base_schema(  # pyright: ignore[reportAny]

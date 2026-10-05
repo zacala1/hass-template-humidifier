@@ -89,15 +89,16 @@ template_humidifier: !include template_humidifiers.yaml
 | Option | Required | Description |
 | --- | --- | --- |
 | `device_class` | yes | `humidifier` or `dehumidifier`. |
-| `state` | yes | Template that is true while the device is on. |
-| `current_humidity` | yes | Template rendering the measured humidity, 0 to 100. |
-| `target_humidity` | yes | Template rendering the target humidity, 0 to 100. |
+| `state` | no | Template that is true while the device is on. Without it the power is [remembered](#remembered-values). |
+| `current_humidity` | no | Template rendering the measured humidity, 0 to 100. |
+| `target_humidity` | no | Template rendering the target humidity, 0 to 100. Without it the target is remembered. |
 | `turn_on`, `turn_off` | yes | Actions run by `humidifier.turn_on` and `humidifier.turn_off`. |
 | `set_humidity` | yes | Actions run by `humidifier.set_humidity`. |
 | `mode` | no | Template rendering the current mode. Needs `modes`. |
 | `modes` | no | List of mode names, or a template rendering a list. Needs `set_mode`. |
 | `set_mode` | no | Actions run by `humidifier.set_mode`. Needs `modes`. |
 | `action` | no | Template rendering what the device is doing, see [Action](#action). |
+| `optimistic` | no | `true` remembers every command result, `false` never assumes the power. See [Remembered values](#remembered-values). |
 | `min_humidity` | no | Number or template, default `0`. |
 | `max_humidity` | no | Number or template, default `100`. |
 | `target_humidity_step` | no | Number or template greater than 0. Unset by default. |
@@ -154,6 +155,31 @@ an error in the log. Home Assistant shows `off` while the entity is off.
           {% else %}idle{% endif %}
 ```
 
+### Remembered values
+
+Some devices only accept commands and report nothing back. Leave out the
+template and the entity remembers what you last told it:
+
+| Missing | The entity remembers |
+| --- | --- |
+| `state` | `turn_on` and `turn_off`. The entity is shown as *assumed*; before any command its state is unknown. |
+| `target_humidity` | the last `set_humidity` value |
+| `mode` (with `modes`) | the last `set_mode` value |
+
+A value is remembered only after its actions succeed. If they fail, the error
+reaches you and nothing changes.
+
+`optimistic: true` does the same for all three even when templates exist: the
+command's value is shown at once and the template takes over the next time it
+changes. `optimistic: false` stops the power from being assumed when `state` is
+missing, so it stays unknown. The target and the mode are still remembered when
+their templates are missing, because nothing else could provide them.
+
+Remembered values survive restarts and reloads. A value from a template always
+wins over a restored one. A restored target outside the current limits, or a
+restored mode that is not in the list, is ignored. A remembered mode that
+disappears from a `modes` template is dropped.
+
 ### Behaviour
 
 - Templates are tracked through the state machine. Nothing is polled.
@@ -167,8 +193,8 @@ an error in the log. Home Assistant shows `off` while the entity is off.
   greater than 0.
 - `humidifier.set_humidity` rejects values outside the entity's range before any
   of your actions run.
-- Commands do not guess the new state. The entity changes when the source
-  entities change.
+- A command only changes the entity when the value is remembered (see above).
+  Otherwise the entity changes when the source entities change.
 - Every entity is validated on its own, so one mistake does not stop the others,
   not even the ones in the same list. Errors are written to the log. A mistake in
   the shape of a section, such as an unknown key, drops that whole section.
@@ -196,14 +222,13 @@ and creates them again. It fires the `event_template_humidifier_reloaded` event.
 
 ## Limitations
 
-- `optimistic`, `variables`, restoring state and trigger-based entities are not
-  supported yet. They are rejected rather than ignored.
-- Commands do not guess the result. After `turn_on`, `set_humidity` or `set_mode`
-  the entity changes only when the source entities do, so `state` and
-  `target_humidity` are required.
-- `current_humidity` is required.
-- A `mode` that is valid when it renders is not checked again if only the `modes`
-  template changes later; it is corrected the next time `mode` renders.
+- `variables` and trigger-based entities are not supported yet. They are
+  rejected rather than ignored.
+- With a `state` template and no `optimistic`, `turn_on` and `turn_off` do not
+  change the entity by themselves; it follows the source entities.
+- A `mode` template that was valid when it rendered is not checked again if only
+  the `modes` template changes later; it is corrected the next time `mode`
+  renders. A remembered mode is checked at once.
 
 ## Development
 
@@ -229,4 +254,5 @@ in [PROJECT_PLAN.md](PROJECT_PLAN.md).
 `configuration.yaml`에 넣고 Home Assistant를 재시작하면 됩니다. 모드
 (`mode`/`modes`/`set_mode`)와 동작 상태(`action`)를 지원하고, 설정을 바꾼 뒤에는
 `template_humidifier.reload` 동작으로 재시작 없이 다시 불러올 수 있습니다.
-현재는 프리릴리즈이며 낙관적 상태와 상태 복원은 아직 지원하지 않습니다.
+`state`, `target_humidity`, `mode` 템플릿을 생략하면 마지막 명령값을 기억하고
+(`optimistic`), 재시작 후에도 복원합니다. 현재는 프리릴리즈입니다.

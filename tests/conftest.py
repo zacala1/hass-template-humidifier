@@ -3,7 +3,7 @@
 import importlib
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from homeassistant.setup import async_setup_component
@@ -69,6 +69,17 @@ def mode_config(**overrides: object) -> ConfigType:
             **overrides,
         }
     )
+
+
+def optimistic_config(*, with_modes: bool = False, **overrides: object) -> ConfigType:
+    """Return a configuration with no ``state``, ``target_humidity`` or ``mode``.
+
+    The power, the target humidity and the mode are then remembered from commands.
+    """
+    config = mode_config(**overrides) if with_modes else entity_config(**overrides)
+    for key in {"state", "target_humidity", "mode"} - overrides.keys():
+        _ = cast("object", config.pop(key, None))
+    return config
 
 
 def get_state(hass: HomeAssistant, entity_id: str = HUMIDIFIER_ID) -> State:

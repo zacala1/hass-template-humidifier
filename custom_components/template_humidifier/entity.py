@@ -11,9 +11,10 @@ from homeassistant.components.humidifier.const import (
 )
 from homeassistant.components.template import validators as template_validators
 from homeassistant.components.template.template_entity import TemplateEntity
-from homeassistant.const import CONF_DEVICE_CLASS, CONF_STATE
+from homeassistant.const import CONF_DEVICE_CLASS, CONF_OPTIMISTIC, CONF_STATE
 from homeassistant.core import callback
 from homeassistant.exceptions import ServiceValidationError, TemplateError
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.template import Template
 
 from .const import (
@@ -33,23 +34,24 @@ from .const import (
     DOMAIN,
     SCRIPT_FIELDS,
 )
+from .restore import HumidifierExtraStoredData
+from .validators import Validator, humidity_number, positive_number
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from homeassistant.components.humidifier import HumidifierDeviceClass
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.typing import ConfigType
 
-_MAX_HUMIDITY = 100
 
-type _Validator = Callable[[object], float | int | None]
-
-
-class TemplateHumidifier(TemplateEntity, HumidifierEntity):
+# The three Home Assistant bases declare several members differently; the same
+# combination is used by Core's own template entities.
+class TemplateHumidifier(  # pyright: ignore[reportIncompatibleVariableOverride]
+    TemplateEntity, HumidifierEntity, RestoreEntity
+):
     """A humidifier or dehumidifier assembled from existing entities."""
 
     _attr_should_poll: bool = False
+    _optimistic_entity: bool = True
     _entity_id_format: str = ENTITY_ID_FORMAT
     _state_option: str | None = CONF_STATE
 
@@ -66,8 +68,17 @@ class TemplateHumidifier(TemplateEntity, HumidifierEntity):
         self._attr_device_class: HumidifierDeviceClass | None = cast(  # pyright: ignore[reportIncompatibleVariableOverride]
             "HumidifierDeviceClass", config[CONF_DEVICE_CLASS]
         )
+        self._attr_is_on: bool | None = None
+        self._attr_target_humidity: float | None = None
         self._attr_mode: str | None = None
         self._attr_available_modes: list[str] | None = None
+        # The power is optimistic when ``state`` is missing (Home Assistant
+        # sets ``assumed_state``). The target and the mode are remembered from
+        # commands when their template is missing; ``optimistic: true`` does
+        # so for all of them.
+        optimistic = config.get(CONF_OPTIMISTIC) is True
+        self._optimistic_target: bool = optimistic or CONF_TARGET_HUMIDITY not in config
+        self._optimistic_mode: bool = optimistic or CONF_MODE not in config
 
         self.setup_state_template(
             "_attr_is_on",
@@ -92,33 +103,12 @@ class TemplateHumidifier(TemplateEntity, HumidifierEntity):
                     field, cast("list[ConfigType]", config[field]), name, DOMAIN
                 )
 
-    def _humidity_number(self, option: str) -> _Validator:
-        """Return a validator accepting numbers from 0 to 100."""
-        return template_validators.number(
-            self, option, 0, _MAX_HUMIDITY, none_on_unknown_unavailable=True
-        )
-
-    def _positive_number(self, option: str) -> _Validator:
-        """Return a validator accepting numbers above 0 up to 100."""
-        convert = self._humidity_number(option)
-
-        def validate(result: object) -> float | int | None:
-            value = convert(result)
-            if value is not None and value <= 0:
-                template_validators.log_validation_result_error(
-                    self, option, result, "expected a number greater than 0"
-                )
-                return None
-            return value
-
-        return validate
-
     def _setup_setting(
         self,
         option: str,
         attribute: str,
-        validator: _Validator,
-        default: float | list[str] | None,
+        validator: Validator,
+        default: float | None,
     ) -> None:
         """Track a capability template, reverting to a default when unusable."""
 
@@ -137,23 +127,23 @@ class TemplateHumidifier(TemplateEntity, HumidifierEntity):
             (CONF_CURRENT_HUMIDITY, "_attr_current_humidity"),
             (CONF_TARGET_HUMIDITY, "_attr_target_humidity"),
         ):
-            self.setup_template(option, attribute, self._humidity_number(option))
+            self.setup_template(option, attribute, humidity_number(self, option))
         self._setup_setting(
             CONF_MIN_HUMIDITY,
             "_attr_min_humidity",
-            self._humidity_number(CONF_MIN_HUMIDITY),
+            humidity_number(self, CONF_MIN_HUMIDITY),
             DEFAULT_MIN_HUMIDITY,
         )
         self._setup_setting(
             CONF_MAX_HUMIDITY,
             "_attr_max_humidity",
-            self._humidity_number(CONF_MAX_HUMIDITY),
+            humidity_number(self, CONF_MAX_HUMIDITY),
             DEFAULT_MAX_HUMIDITY,
         )
         self._setup_setting(
             CONF_TARGET_HUMIDITY_STEP,
             "_attr_target_humidity_step",
-            self._positive_number(CONF_TARGET_HUMIDITY_STEP),
+            positive_number(self, CONF_TARGET_HUMIDITY_STEP),
             None,
         )
 
@@ -169,16 +159,14 @@ class TemplateHumidifier(TemplateEntity, HumidifierEntity):
         if isinstance(modes, Template):
             # Registered before ``mode`` so a new list is in place before the
             # current mode is checked against it.
-            self._setup_setting(
+            self.setup_template(
                 CONF_MODES,
                 "_attr_available_modes",
-                cast(
-                    "_Validator",
-                    template_validators.list_of_strings(
-                        self, CONF_MODES, none_on_unknown_unavailable=True
-                    ),
+                template_validators.list_of_strings(
+                    self, CONF_MODES, none_on_unknown_unavailable=True
                 ),
-                [],
+                self._update_modes,
+                none_on_template_error=False,
             )
         else:
             self._attr_available_modes = cast("list[str]", modes)
@@ -190,12 +178,23 @@ class TemplateHumidifier(TemplateEntity, HumidifierEntity):
             ),
         )
 
+    @callback
+    def _update_modes(self, result: object) -> None:
+        """Store the rendered list of modes, which is empty when unusable."""
+        modes = None if isinstance(result, TemplateError) else result
+        self._attr_available_modes = [] if modes is None else cast("list[str]", modes)
+        if self._optimistic_mode and self._attr_mode not in self._attr_available_modes:
+            self._attr_mode = None
+
     @override
     async def async_turn_on(self, **kwargs: object) -> None:
         """Run the ``turn_on`` actions."""
         await self.async_run_script(
             self._action_scripts[CONF_TURN_ON], context=self._context
         )
+        if self._attr_assumed_state:
+            self._attr_is_on = True
+            self.async_write_ha_state()
 
     @override
     async def async_turn_off(self, **kwargs: object) -> None:
@@ -203,6 +202,9 @@ class TemplateHumidifier(TemplateEntity, HumidifierEntity):
         await self.async_run_script(
             self._action_scripts[CONF_TURN_OFF], context=self._context
         )
+        if self._attr_assumed_state:
+            self._attr_is_on = False
+            self.async_write_ha_state()
 
     @override
     async def async_set_humidity(self, humidity: int) -> None:
@@ -212,6 +214,9 @@ class TemplateHumidifier(TemplateEntity, HumidifierEntity):
             run_variables={"humidity": humidity},
             context=self._context,
         )
+        if self._optimistic_target:
+            self._attr_target_humidity = humidity
+            self.async_write_ha_state()
 
     @override
     async def async_set_mode(self, mode: str) -> None:
@@ -228,3 +233,45 @@ class TemplateHumidifier(TemplateEntity, HumidifierEntity):
             run_variables={"mode": mode},
             context=self._context,
         )
+        if self._optimistic_mode:
+            self._attr_mode = mode
+            self.async_write_ha_state()
+
+    @property
+    @override
+    def extra_restore_state_data(self) -> HumidifierExtraStoredData:
+        """Return the remembered values that a restart should bring back."""
+        return HumidifierExtraStoredData(
+            is_on=self._attr_is_on,
+            target_humidity=self._attr_target_humidity,
+            mode=self._attr_mode,
+        )
+
+    @override
+    async def async_restore_last_state(self) -> None:
+        """Bring back remembered values where no template has supplied one."""
+        extra = await self.async_get_last_extra_data()
+        if extra is None:
+            return
+        stored = HumidifierExtraStoredData.from_dict(extra.as_dict())
+
+        if self._attr_assumed_state and self._attr_is_on is None:
+            self._attr_is_on = stored.is_on
+        target = stored.target_humidity
+        if (
+            self._optimistic_target
+            and self._attr_target_humidity is None
+            and target is not None
+            and self.min_humidity <= target <= self.max_humidity
+        ):
+            self._attr_target_humidity = target
+        # A modes template may not have rendered yet; it drops the mode again
+        # if the list turns out not to contain it.
+        modes = self.available_modes
+        if (
+            self._optimistic_mode
+            and self._attr_mode is None
+            and stored.mode is not None
+            and (modes is None or stored.mode in modes)
+        ):
+            self._attr_mode = stored.mode

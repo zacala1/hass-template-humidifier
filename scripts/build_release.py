@@ -31,9 +31,11 @@ RUNTIME_FILES = (
     "entity.py",
     "humidifier.py",
     "manifest.json",
+    "restore.py",
     "services.yaml",
     "translations/en.json",
     "translations/ko.json",
+    "validators.py",
 )
 EXCLUDED_DIRS = frozenset({"__pycache__"})
 EXCLUDED_PATTERNS = (

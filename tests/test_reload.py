@@ -202,3 +202,32 @@ async def test_reload_stops_when_the_configuration_cannot_be_processed(
     assert get_state(hass).state == "off"
     assert hass.states.get(BEDROOM_ID) is None
     assert not events
+
+
+def _optimistic_entity(name: str, unique_id: str) -> str:
+    """An entity without ``state`` or ``target_humidity``: both are remembered."""
+    return "\n".join(
+        line
+        for line in _entity(name, unique_id).splitlines()
+        if not line.strip().startswith(("state:", "target_humidity:"))
+    )
+
+
+async def test_reload_keeps_the_values_an_entity_remembered(
+    hass: HomeAssistant,
+) -> None:
+    await _setup(hass, _optimistic_entity("Living Room Dehumidifier", "living"))
+    for service, data in (("turn_on", {}), ("set_humidity", {"humidity": 45})):
+        _ = await hass.services.async_call(
+            "humidifier",
+            service,
+            {"entity_id": HUMIDIFIER_ID, **data},
+            blocking=True,
+        )
+    assert get_state(hass).state == "on"
+
+    await _reload(hass, _yaml(_optimistic_entity("Living Room Dehumidifier", "living")))
+
+    state = get_state(hass)
+    assert state.state == "on"
+    assert state.attributes["humidity"] == 45
