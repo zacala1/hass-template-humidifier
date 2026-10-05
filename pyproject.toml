@@ -8,12 +8,12 @@ dependencies = []
 
 [dependency-groups]
 dev = [
-    "basedpyright==1.33.0",
+    "basedpyright==1.40.1",
     "homeassistant==2026.8.3",
     "pytest==9.0.3",
     "pytest-cov==7.1.0",
     "pytest-homeassistant-custom-component==0.13.357",
-    "ruff==0.13.2",
+    "ruff==0.16.9",
 ]
 
 [tool.uv]
@@ -40,7 +40,7 @@ select = ["ALL"]
 ignore = ["COM812", "ISC001", "D203", "D213", "CPY001", "TD002", "TD003", "FIX002"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["S101", "ARG", "PLR0913", "PLR2004", "SLF001", "D"]
+"tests/**/*.py" = ["S101", "ARG", "PLR0913", "PLR0917", "PLR2004", "SLF001", "D"]
 "scripts/**/*.py" = ["T201", "INP001"]
 
 [tool.ruff.lint.isort]

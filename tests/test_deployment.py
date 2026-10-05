@@ -456,3 +456,18 @@ def test_dependabot_tracks_actions_and_python_dependencies_weekly() -> None:
     assert 'package-ecosystem: "github-actions"' in text
     assert 'package-ecosystem: "uv"' in text
     assert text.count('interval: "weekly"') == 2
+
+
+@pytest.mark.parametrize(
+    "package",
+    [
+        "homeassistant",
+        "pytest-homeassistant-custom-component",
+        "pytest",
+        "pytest-cov",
+    ],
+)
+def test_dependabot_leaves_the_home_assistant_pin_set_alone(package: str) -> None:
+    text = _read(ROOT / ".github" / "dependabot.yml")
+
+    assert f'- dependency-name: "{package}"' in text

@@ -9,9 +9,13 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
-    groups:
-      # These two are version-locked to each other and must move together.
-      home-assistant:
-        patterns:
-          - "homeassistant"
-          - "pytest-homeassistant-custom-component"
+    ignore:
+      # These four are pinned to each other (the test plugin pins exact versions
+      # of pytest, pytest-cov and, through Home Assistant's own requirements,
+      # sqlalchemy), so Dependabot cannot bump them one at a time and every
+      # attempt fails to resolve. They move together, by hand, when the supported
+      # Home Assistant baseline changes.
+      - dependency-name: "homeassistant"
+      - dependency-name: "pytest-homeassistant-custom-component"
+      - dependency-name: "pytest"
+      - dependency-name: "pytest-cov"
