@@ -1,0 +1,8 @@
+{
+  "services": {
+    "reload": {
+      "name": "다시 불러오기",
+      "description": "YAML 설정에서 템플릿 가습기/제습기를 다시 불러옵니다."
+    }
+  }
+}

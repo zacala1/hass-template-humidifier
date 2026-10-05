@@ -22,11 +22,15 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.setup import async_notify_setup_error
 
 from .const import (
+    CONF_ACTION,
     CONF_CURRENT_HUMIDITY,
     CONF_HUMIDIFIER,
     CONF_MAX_HUMIDITY,
     CONF_MIN_HUMIDITY,
+    CONF_MODE,
+    CONF_MODES,
     CONF_SET_HUMIDITY,
+    CONF_SET_MODE,
     CONF_TARGET_HUMIDITY,
     CONF_TARGET_HUMIDITY_STEP,
     CONF_TURN_OFF,
@@ -90,6 +94,36 @@ def _validate_limits(config: ConfigType) -> ConfigType:
     return config
 
 
+def _modes(value: object) -> list[str] | Template:
+    """Validate ``modes``: a non-empty list of unique names, or a template."""
+    if isinstance(value, list | tuple):
+        modes = [cv.string(item) for item in cast("list[object]", value)]
+        if not modes:
+            message = f"{CONF_MODES} must not be empty"
+            raise vol.Invalid(message)
+        if len(set(modes)) != len(modes):
+            message = f"{CONF_MODES} must not contain duplicates"
+            raise vol.Invalid(message)
+        return modes
+
+    template = cv.template(value)
+    if template.is_static:
+        message = f"{CONF_MODES} must be a list or a template that renders a list"
+        raise vol.Invalid(message)
+    return template
+
+
+def _validate_mode(config: ConfigType) -> ConfigType:
+    """Reject a current ``mode`` that has no ``modes`` to belong to."""
+    if CONF_MODE in config and CONF_MODES not in config:
+        message = f"{CONF_MODE} requires {CONF_MODES} and {CONF_SET_MODE}"
+        raise vol.Invalid(message, path=[CONF_MODE])
+    return config
+
+
+_MODES_GROUP: Final = "modes"
+_MODES_TOGETHER: Final = f"{CONF_MODES} and {CONF_SET_MODE} must be configured together"
+
 HUMIDIFIER_YAML_SCHEMA: Final = vol.All(
     vol.Schema(
         {
@@ -104,6 +138,12 @@ HUMIDIFIER_YAML_SCHEMA: Final = vol.All(
             vol.Required(CONF_TURN_ON): cv.SCRIPT_SCHEMA,
             vol.Required(CONF_TURN_OFF): cv.SCRIPT_SCHEMA,
             vol.Required(CONF_SET_HUMIDITY): cv.SCRIPT_SCHEMA,
+            vol.Optional(CONF_MODE): cv.template,
+            vol.Inclusive(CONF_MODES, _MODES_GROUP, msg=_MODES_TOGETHER): _modes,
+            vol.Inclusive(
+                CONF_SET_MODE, _MODES_GROUP, msg=_MODES_TOGETHER
+            ): cv.SCRIPT_SCHEMA,
+            vol.Optional(CONF_ACTION): cv.template,
         }
     ).extend(  # pyright: ignore[reportUnknownMemberType]
         make_template_entity_base_schema(  # pyright: ignore[reportAny]
@@ -111,6 +151,7 @@ HUMIDIFIER_YAML_SCHEMA: Final = vol.All(
         ).schema
     ),
     _validate_limits,
+    _validate_mode,
 )
 
 CONFIG_SECTION_SCHEMA: Final = vol.Schema(
@@ -119,6 +160,15 @@ CONFIG_SECTION_SCHEMA: Final = vol.Schema(
         vol.Required(CONF_HUMIDIFIER): vol.All(
             cv.ensure_list, [HUMIDIFIER_YAML_SCHEMA]
         ),
+    }
+)
+
+# The same section, but leaving the entities unvalidated so that each one can be
+# checked (and dropped) on its own.
+_SECTION_SHELL_SCHEMA: Final = vol.Schema(
+    {
+        vol.Optional(CONF_UNIQUE_ID): cv.string,
+        vol.Required(CONF_HUMIDIFIER): vol.All(cv.ensure_list, [dict]),
     }
 )
 
@@ -132,26 +182,46 @@ def _is_domain_key(key: str) -> bool:
     return key == DOMAIN or (key.startswith(DOMAIN) and len(key.split()) > 1)
 
 
+def _validate_section(hass: HomeAssistant, section: ConfigType) -> ConfigType | None:
+    """Validate a section, dropping only the entities that are invalid."""
+    try:
+        shell = cast("ConfigType", _SECTION_SHELL_SCHEMA(section))
+    except vol.Invalid as err:
+        async_log_schema_error(err, DOMAIN, section, hass)
+        async_notify_setup_error(hass, DOMAIN)
+        return None
+
+    entities: list[ConfigType] = []
+    for entity in cast("list[ConfigType]", shell[CONF_HUMIDIFIER]):
+        try:
+            entities.append(cast("ConfigType", HUMIDIFIER_YAML_SCHEMA(entity)))
+        except vol.Invalid as err:
+            async_log_schema_error(err, DOMAIN, entity, hass)
+            async_notify_setup_error(hass, DOMAIN)
+
+    return {**shell, CONF_HUMIDIFIER: entities}
+
+
 async def async_validate_config(hass: HomeAssistant, config: ConfigType) -> ConfigType:
-    """Validate every section on its own so one mistake cannot hide the rest."""
+    """Validate every entity on its own so one mistake cannot hide the rest."""
     sections: list[ConfigType] = []
     found = False
     for key in config:
         if not _is_domain_key(key):
             continue
         found = True
-        for section in cast(
+        raw_sections = cast(
             "list[ConfigType]", cv.ensure_list(cast("object", config[key]))
-        ):
-            try:
-                sections.append(cast("ConfigType", CONFIG_SECTION_SCHEMA(section)))
-            except vol.Invalid as err:
-                async_log_schema_error(err, DOMAIN, section, hass)
-                async_notify_setup_error(hass, DOMAIN)
+        )
+        sections.extend(
+            validated
+            for section in raw_sections
+            if (validated := _validate_section(hass, section)) is not None
+        )
 
     if not found:
         return config
 
-    validated = config_without_domain(config, DOMAIN)
-    validated[DOMAIN] = sections
-    return validated
+    validated_config = config_without_domain(config, DOMAIN)
+    validated_config[DOMAIN] = sections
+    return validated_config

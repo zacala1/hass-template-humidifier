@@ -28,8 +28,12 @@ RUNTIME_FILES = (
     "brand/icon.png",
     "config.py",
     "const.py",
+    "entity.py",
     "humidifier.py",
     "manifest.json",
+    "services.yaml",
+    "translations/en.json",
+    "translations/ko.json",
 )
 EXCLUDED_DIRS = frozenset({"__pycache__"})
 EXCLUDED_PATTERNS = (

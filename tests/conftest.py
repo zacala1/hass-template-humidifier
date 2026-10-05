@@ -1,5 +1,6 @@
 """Shared fixtures for Template Humidifier tests."""
 
+import importlib
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -14,11 +15,18 @@ if TYPE_CHECKING:
 
 pytest_plugins = ["pytest_homeassistant_custom_component"]
 
+# Home Assistant finds the integration through the ``custom_components`` package.
+# Importing it here makes it resolve to this repository no matter which test
+# module runs first, instead of depending on test collection order.
+_ = importlib.import_module("custom_components.template_humidifier")
+
 DOMAIN = "template_humidifier"
 HUMIDIFIER_ID = "humidifier.living_room_dehumidifier"
 POWER = "switch.dehumidifier_power"
 HUMIDITY = "sensor.dehumidifier_humidity"
 TARGET = "number.dehumidifier_target"
+SELECT = "select.dehumidifier_mode"
+COMPRESSOR = "binary_sensor.dehumidifier_compressor"
 
 type SetupIntegration = Callable[..., Awaitable[None]]
 
@@ -51,6 +59,18 @@ def entity_config(**overrides: object) -> ConfigType:
     return config
 
 
+def mode_config(**overrides: object) -> ConfigType:
+    """Return a valid configuration that also exposes modes."""
+    return entity_config(
+        **{
+            "mode": f"{{{{ states('{SELECT}') }}}}",
+            "modes": ["auto", "quiet", "laundry"],
+            "set_mode": [{"action": "test.set_mode", "data": {"mode": "{{ mode }}"}}],
+            **overrides,
+        }
+    )
+
+
 def get_state(hass: HomeAssistant, entity_id: str = HUMIDIFIER_ID) -> State:
     """Return the state of an entity that must exist."""
     state = hass.states.get(entity_id)
@@ -65,6 +85,7 @@ class Calls:
     turn_on: list[ServiceCall]
     turn_off: list[ServiceCall]
     set_humidity: list[ServiceCall]
+    set_mode: list[ServiceCall]
 
 
 @pytest.fixture(autouse=True)
@@ -73,6 +94,8 @@ def sources(hass: HomeAssistant) -> None:
     hass.states.async_set(POWER, "off")
     hass.states.async_set(HUMIDITY, "57")
     hass.states.async_set(TARGET, "50")
+    hass.states.async_set(SELECT, "auto", {"options": ["auto", "quiet", "laundry"]})
+    hass.states.async_set(COMPRESSOR, "off")
 
 
 @pytest.fixture(autouse=True)
@@ -82,6 +105,7 @@ def calls(hass: HomeAssistant) -> Calls:
         turn_on=async_mock_service(hass, "test", "turn_on"),
         turn_off=async_mock_service(hass, "test", "turn_off"),
         set_humidity=async_mock_service(hass, "test", "set_humidity"),
+        set_mode=async_mock_service(hass, "test", "set_mode"),
     )
 
 

@@ -13,8 +13,12 @@ CONF_TARGET_HUMIDITY_STEP: Final = "target_humidity_step"
 CONF_TURN_ON: Final = "turn_on"
 CONF_TURN_OFF: Final = "turn_off"
 CONF_SET_HUMIDITY: Final = "set_humidity"
+CONF_MODE: Final = "mode"
+CONF_MODES: Final = "modes"
+CONF_SET_MODE: Final = "set_mode"
+CONF_ACTION: Final = "action"
 
 DEFAULT_NAME: Final = "Template Humidifier"
 
-SCRIPT_FIELDS: Final = (CONF_TURN_ON, CONF_TURN_OFF, CONF_SET_HUMIDITY)
+SCRIPT_FIELDS: Final = (CONF_TURN_ON, CONF_TURN_OFF, CONF_SET_HUMIDITY, CONF_SET_MODE)
 ENTITIES: Final = "entities"

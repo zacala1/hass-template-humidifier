@@ -7,7 +7,7 @@ import voluptuous as vol
 from custom_components.template_humidifier.config import CONFIG_SECTION_SCHEMA
 from homeassistant.components.humidifier import HumidifierDeviceClass
 
-from .conftest import entity_config
+from .conftest import entity_config, mode_config
 
 if TYPE_CHECKING:
     from homeassistant.helpers.template import Template
@@ -126,10 +126,6 @@ async def test_rejects_unknown_device_class(
 @pytest.mark.parametrize(
     ("key", "value"),
     [
-        ("mode", "{{ 'auto' }}"),
-        ("modes", ["auto", "quiet"]),
-        ("action", "{{ 'idle' }}"),
-        ("set_mode", [{"action": "test.set_mode"}]),
         ("optimistic", True),
         ("variables", {"power": "switch.power"}),
         ("attributes", {"foo": "{{ 1 }}"}),
@@ -264,3 +260,74 @@ async def test_rejects_malformed_template() -> None:
 async def test_rejects_malformed_action() -> None:
     with pytest.raises(vol.Invalid, match="turn_on"):
         _ = _validate(entity_config(turn_on=[{"not_an_action": 1}]))
+
+
+# --- modes, set_mode, mode and action (0.2) ---------------------------------
+
+
+async def test_accepts_static_modes() -> None:
+    [entity] = _entities(mode_config())
+
+    assert entity["modes"] == ["auto", "quiet", "laundry"]
+    assert _template(entity, "mode").template.startswith("{{")
+    assert "set_mode" in entity
+
+
+async def test_accepts_template_modes() -> None:
+    [entity] = _entities(
+        mode_config(modes="{{ state_attr('select.dehumidifier_mode', 'options') }}")
+    )
+
+    assert not _template(entity, "modes").is_static
+
+
+async def test_modes_without_a_current_mode_template_are_allowed() -> None:
+    config = mode_config()
+    del config["mode"]
+
+    [entity] = _entities(config)
+
+    assert "mode" not in entity
+
+
+@pytest.mark.parametrize("missing", ["modes", "set_mode"])
+async def test_modes_and_set_mode_must_come_together(missing: str) -> None:
+    config = mode_config()
+    del config[missing]
+    del config["mode"]
+
+    with pytest.raises(vol.Invalid, match="modes"):
+        _ = _validate(config)
+
+
+async def test_mode_requires_modes() -> None:
+    config = entity_config(mode="{{ 'auto' }}")
+
+    with pytest.raises(vol.Invalid, match="mode requires"):
+        _ = _validate(config)
+
+
+@pytest.mark.parametrize(
+    "modes",
+    [[], ["auto", "auto"], "auto", "", [["auto"]], [{"a": 1}], 5],
+)
+async def test_rejects_unusable_modes(modes: object) -> None:
+    with pytest.raises(vol.Invalid, match="modes"):
+        _ = _validate(mode_config(modes=modes))
+
+
+async def test_numbers_in_static_modes_become_strings() -> None:
+    [entity] = _entities(mode_config(modes=[1, 2.5, "turbo"]))
+
+    assert entity["modes"] == ["1", "2.5", "turbo"]
+
+
+async def test_accepts_action_template() -> None:
+    [entity] = _entities(entity_config(action="{{ 'idle' }}"))
+
+    assert _template(entity, "action").template == "{{ 'idle' }}"
+
+
+async def test_rejects_malformed_set_mode_actions() -> None:
+    with pytest.raises(vol.Invalid, match="set_mode"):
+        _ = _validate(mode_config(set_mode=[{"not_an_action": 1}]))

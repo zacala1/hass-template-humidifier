@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+import pytest
 from homeassistant import config as hass_config
 from homeassistant.const import STATE_OFF
 from homeassistant.helpers import issue_registry as ir
@@ -15,7 +16,6 @@ from pytest_homeassistant_custom_component.common import (
 from .conftest import DOMAIN, HUMIDIFIER_ID, entity_config
 
 if TYPE_CHECKING:
-    import pytest
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.typing import ConfigType
 
@@ -182,3 +182,71 @@ async def test_labelled_domain_keys_are_supported(hass: HomeAssistant) -> None:
 
     assert hass.states.get(HUMIDIFIER_ID) is not None
     assert hass.states.get("humidifier.bedroom") is not None
+
+
+async def test_invalid_entity_does_not_drop_its_siblings_in_the_same_list(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
+    broken = entity_config(name="Broken", unique_id="broken", device_class="fan")
+    config: ConfigType = {
+        DOMAIN: [{"humidifier": [broken, entity_config(), _bedroom()]}]
+    }
+
+    assert await async_setup_component(hass, DOMAIN, config)
+    await hass.async_block_till_done()
+
+    assert hass.states.get(HUMIDIFIER_ID) is not None
+    assert hass.states.get("humidifier.bedroom") is not None
+    assert hass.states.get("humidifier.broken") is None
+    assert "device_class" in caplog.text
+
+
+async def test_invalid_section_shape_is_dropped_but_other_sections_load(
+    hass: HomeAssistant,
+) -> None:
+    config: ConfigType = {
+        DOMAIN: [
+            {"humidifier": [entity_config()], "triggers": []},
+            {"humidifier": [_bedroom()]},
+        ]
+    }
+
+    assert await async_setup_component(hass, DOMAIN, config)
+    await hass.async_block_till_done()
+
+    assert hass.states.get(HUMIDIFIER_ID) is None
+    assert hass.states.get("humidifier.bedroom") is not None
+
+
+def _bedroom() -> ConfigType:
+    return entity_config(name="Bedroom", unique_id="bedroom")
+
+
+@pytest.mark.parametrize(
+    ("extra", "expected"),
+    [
+        ({"default_entity_id": "humidifier.custom"}, "humidifier.custom"),
+        ({"unique_id": "uid-1"}, "unique_id: uid-1"),
+        ({"unique_id": None, "name": "Named One"}, "Named One"),
+    ],
+)
+async def test_script_errors_name_the_entity_that_failed(
+    hass: HomeAssistant,
+    caplog: pytest.LogCaptureFixture,
+    extra: ConfigType,
+    expected: str,
+) -> None:
+    config = entity_config(
+        turn_off=[{"device_id": "missing", "domain": "switch", "type": "turn_off"}],
+        **cast("dict[str, object]", extra),
+    )
+    if config.get("unique_id") is None:
+        del config["unique_id"]
+
+    assert await async_setup_component(
+        hass, DOMAIN, {DOMAIN: [{"humidifier": [config]}]}
+    )
+    await hass.async_block_till_done()
+
+    assert f"actions of {expected} failed to set up" in caplog.text
+    assert not hass.states.async_entity_ids("humidifier")

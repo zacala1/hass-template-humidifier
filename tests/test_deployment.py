@@ -471,3 +471,35 @@ def test_dependabot_leaves_the_home_assistant_pin_set_alone(package: str) -> Non
     text = _read(ROOT / ".github" / "dependabot.yml")
 
     assert f'- dependency-name: "{package}"' in text
+
+
+def test_reload_service_is_defined_and_translated() -> None:
+    assert re.search(r"(?m)^reload:", _read(INTEGRATION / "services.yaml"))
+
+    translations = {
+        language: cast(
+            "dict[str, dict[str, dict[str, str]]]",
+            _json(INTEGRATION / "translations" / f"{language}.json"),
+        )
+        for language in ("en", "ko")
+    }
+    for language, data in translations.items():
+        reload_text = data["services"]["reload"]
+        assert reload_text["name"], language
+        assert reload_text["description"], language
+    assert translations["en"].keys() == translations["ko"].keys()
+
+
+def test_readme_documents_every_supported_option() -> None:
+    readme = _read(ROOT / "README.md")
+    schema = _read(INTEGRATION / "const.py")
+
+    options = cast(
+        "list[str]",
+        re.findall(r'^CONF_(?!HUMIDIFIER)\w+: Final = "(\w+)"', schema, re.MULTILINE),
+    )
+
+    assert "turn_on" in options
+    for option in options:
+        assert f"`{option}`" in readme, option
+    assert "template_humidifier.reload" in readme

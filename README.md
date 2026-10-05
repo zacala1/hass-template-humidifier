@@ -12,8 +12,8 @@ entities. Many devices expose their power, humidity, target and mode as separate
 them into one entity that works with the humidifier card, voice assistants and
 automations.
 
-Requires Home Assistant 2026.8.3 or newer. This is a **pre-release** (`0.1.0b1`);
-see [Limitations](#limitations).
+Requires Home Assistant 2026.8.3 or newer. This is a **pre-release**; see
+[Limitations](#limitations).
 
 ## Installation
 
@@ -94,6 +94,10 @@ template_humidifier: !include template_humidifiers.yaml
 | `target_humidity` | yes | Template rendering the target humidity, 0 to 100. |
 | `turn_on`, `turn_off` | yes | Actions run by `humidifier.turn_on` and `humidifier.turn_off`. |
 | `set_humidity` | yes | Actions run by `humidifier.set_humidity`. |
+| `mode` | no | Template rendering the current mode. Needs `modes`. |
+| `modes` | no | List of mode names, or a template rendering a list. Needs `set_mode`. |
+| `set_mode` | no | Actions run by `humidifier.set_mode`. Needs `modes`. |
+| `action` | no | Template rendering what the device is doing, see [Action](#action). |
 | `min_humidity` | no | Number or template, default `0`. |
 | `max_humidity` | no | Number or template, default `100`. |
 | `target_humidity_step` | no | Number or template greater than 0. Unset by default. |
@@ -107,7 +111,48 @@ A section may also have its own `unique_id`, which is used as a prefix for the
 unique IDs of its entities.
 
 Actions use the standard Home Assistant action syntax. `set_humidity` receives
-the requested value as `humidity`. Every action can use `this`, the entity itself.
+the requested value as `humidity` and `set_mode` the requested mode as `mode`.
+Every action can use `this`, the entity itself.
+
+### Modes
+
+Configure `modes` and `set_mode` together and the entity supports modes. Without
+them it does not expose any mode controls.
+
+```yaml
+        mode: "{{ states('select.dehumidifier_mode') }}"
+        modes:
+          - auto
+          - quiet
+          - laundry
+        set_mode:
+          - action: select.select_option
+            target:
+              entity_id: select.dehumidifier_mode
+            data:
+              option: "{{ mode }}"
+```
+
+`modes` can also be a template, for example
+`"{{ state_attr('select.dehumidifier_mode', 'options') }}"`, so the list follows
+the source entity. A `mode` that is not in the list is shown as missing, and a
+`modes` template that does not render a list gives an empty list.
+
+`humidifier.set_mode` rejects a mode that is not in the list before any of your
+actions run. `mode` is optional; without it the current mode is not known.
+
+### Action
+
+`action` reports what the device is doing: `humidifying`, `drying`, `idle` or
+`off`. Case and surrounding spaces are ignored and anything else is dropped with
+an error in the log. Home Assistant shows `off` while the entity is off.
+
+```yaml
+        action: >
+          {% if is_state('switch.dehumidifier_power', 'off') %}off
+          {% elif is_state('binary_sensor.dehumidifier_compressor', 'on') %}drying
+          {% else %}idle{% endif %}
+```
 
 ### Behaviour
 
@@ -124,8 +169,9 @@ the requested value as `humidity`. Every action can use `this`, the entity itsel
   of your actions run.
 - Commands do not guess the new state. The entity changes when the source
   entities change.
-- Each section is validated on its own, so one mistake does not stop the others.
-  Errors are written to the log.
+- Every entity is validated on its own, so one mistake does not stop the others,
+  not even the ones in the same list. Errors are written to the log. A mistake in
+  the shape of a section, such as an unknown key, drops that whole section.
 
 ### Moving from other formats
 
@@ -135,13 +181,29 @@ key. The old `*_template` option names and `friendly_name` are rejected like in
 the modern `template:` integration; use `state`, `availability`, `name` and the
 other names above.
 
+## Reloading
+
+Call the `template_humidifier.reload` action (Developer tools > Actions) after
+editing the YAML. It re-reads `configuration.yaml`, removes the existing entities
+and creates them again. It fires the `event_template_humidifier_reloaded` event.
+
+- The action only exists once Home Assistant has started with a
+  `template_humidifier:` section, so adding the very first one needs a restart.
+- An entity you remove from the YAML keeps its registry entry if it has a
+  `unique_id`, and Home Assistant shows it as unavailable. Delete it from the
+  entity settings. Entities without a `unique_id` disappear.
+- If the YAML cannot be read, the action fails and nothing changes.
+
 ## Limitations
 
-- Changes to the YAML need a Home Assistant restart. There is no reload action yet.
-- `mode`, `modes`, `set_mode`, `action`, `optimistic`, `variables`, restoring
-  state and trigger-based entities are not supported yet. They are rejected
-  rather than ignored.
-- `state`, `current_humidity` and `target_humidity` are required.
+- `optimistic`, `variables`, restoring state and trigger-based entities are not
+  supported yet. They are rejected rather than ignored.
+- Commands do not guess the result. After `turn_on`, `set_humidity` or `set_mode`
+  the entity changes only when the source entities do, so `state` and
+  `target_humidity` are required.
+- `current_humidity` is required.
+- A `mode` that is valid when it renders is not checked again if only the `modes`
+  template changes later; it is corrected the next time `mode` renders.
 
 ## Development
 
@@ -164,6 +226,7 @@ in [PROJECT_PLAN.md](PROJECT_PLAN.md).
 기존 `switch`, `sensor`, `number`, `select` 엔티티를 하나의 표준 가습기/제습기
 (`humidifier`) 엔티티로 묶어 주는 통합입니다. 설정 방식은 최신 `template:`
 통합과 같고 최상위 키만 `template_humidifier:`입니다. 위의 예시를 그대로
-`configuration.yaml`에 넣고 Home Assistant를 재시작하면 됩니다. 현재는
-프리릴리즈이며 설정을 바꾸면 재시작이 필요합니다. 모드, 동작 상태,
-낙관적 상태, 재로드는 아직 지원하지 않습니다.
+`configuration.yaml`에 넣고 Home Assistant를 재시작하면 됩니다. 모드
+(`mode`/`modes`/`set_mode`)와 동작 상태(`action`)를 지원하고, 설정을 바꾼 뒤에는
+`template_humidifier.reload` 동작으로 재시작 없이 다시 불러올 수 있습니다.
+현재는 프리릴리즈이며 낙관적 상태와 상태 복원은 아직 지원하지 않습니다.
