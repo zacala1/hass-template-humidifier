@@ -1027,7 +1027,7 @@ wheels = [
 
 [[package]]
 name = "hass-template-humidifier"
-version = "0.3.0b1"
+version = "0.4.0b1"
 source = { virtual = "." }
 
 [package.dev-dependencies]

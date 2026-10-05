@@ -21,7 +21,7 @@ Requires Home Assistant 2026.8.3 or newer. This is a **pre-release**; see
 
 1. Add this repository as a custom repository of type **Integration**.
 2. Download **Template Humidifier**.
-3. To receive pre-releases such as `0.3.0b1`, open the repository in HACS, choose
+3. To receive pre-releases such as `0.4.0b1`, open the repository in HACS, choose
    **Redownload**, and enable **Show beta versions**.
 4. Restart Home Assistant.
 
