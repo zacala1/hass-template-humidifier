@@ -3,6 +3,9 @@ name: Validate
 on:
   push:
   pull_request:
+  schedule:
+    # Weekly, so a change in Home Assistant shows up even when nothing was pushed.
+    - cron: "23 3 * * 1"
 
 permissions:
   contents: read
@@ -71,3 +74,43 @@ jobs:
         uses: hacs/action@1ebf01c408f29afcb6406bd431bc98fd8cbb15aa # main
         with:
           category: integration
+
+  compat:
+    # The quality job runs the version the lock file pins, which is also the oldest
+    # supported one. This job runs newer Home Assistant releases without the lock
+    # file, because the integration reuses parts of Core's template integration.
+    name: Home Assistant ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "2026.9.4"
+            plugin: "==0.13.367"
+            experimental: false
+          - name: "latest, including betas"
+            plugin: ""
+            experimental: true
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.11.29"
+          enable-cache: false
+
+      - name: Install Home Assistant and its test plugin
+        run: |
+          uv venv "$RUNNER_TEMP/compat"
+          uv pip install --python "$RUNNER_TEMP/compat/bin/python" --prerelease allow \
+            "pytest-homeassistant-custom-component${{ matrix.plugin }}"
+
+      - name: Run the tests
+        run: |
+          "$RUNNER_TEMP/compat/bin/python" -c "import homeassistant.const as c; print('Home Assistant', c.__version__)"
+          "$RUNNER_TEMP/compat/bin/python" -m pytest -q -p no:cacheprovider

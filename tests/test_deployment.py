@@ -539,3 +539,14 @@ def test_the_readme_examples_are_valid_configuration() -> None:
     for configuration in configurations:
         for section in cast("list[ConfigType]", configuration["template_humidifier"]):
             _ = cast("ConfigType", CONFIG_SECTION_SCHEMA(section))
+
+
+def test_validation_workflow_also_tests_newer_home_assistant_releases() -> None:
+    text = _read(WORKFLOWS / "validate.yml")
+
+    assert re.search(r"(?m)^  compat:$", text)
+    assert "pytest-homeassistant-custom-component" in text
+    # Only the pinned stable release may fail the workflow; the unpinned one that
+    # includes betas is informational.
+    assert "continue-on-error: ${{ matrix.experimental }}" in text
+    assert re.search(r"(?m)^    - cron: ", text)
