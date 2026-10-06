@@ -5,14 +5,18 @@ from typing import TYPE_CHECKING, Final, cast
 import voluptuous as vol
 from homeassistant.components.humidifier import DEVICE_CLASSES_SCHEMA
 from homeassistant.components.humidifier.const import DOMAIN as HUMIDIFIER_DOMAIN
-from homeassistant.components.template.const import CONF_AVAILABILITY
-from homeassistant.components.template.schemas import (
-    make_template_entity_base_schema,
+from homeassistant.components.template.const import (
+    CONF_AVAILABILITY,
+    CONF_DEFAULT_ENTITY_ID,
+    CONF_PICTURE,
 )
 from homeassistant.const import (
     CONF_DEVICE_CLASS,
+    CONF_ICON,
+    CONF_NAME,
     CONF_OPTIMISTIC,
     CONF_STATE,
+    CONF_UNIQUE_ID,
     CONF_VARIABLES,
 )
 from homeassistant.helpers import config_validation as cv
@@ -135,11 +139,16 @@ HUMIDIFIER_YAML_SCHEMA: Final = vol.All(
             vol.Optional(CONF_ACTION): cv.template,
             vol.Optional(CONF_OPTIMISTIC): cv.boolean,
             vol.Optional(CONF_VARIABLES): cv.SCRIPT_VARIABLES_SCHEMA,
+            # The keys every template entity shares. Core keeps changing the helper
+            # that builds them, so they are spelled out here.
+            vol.Optional(CONF_DEFAULT_ENTITY_ID): vol.All(
+                cv.entity_id, cv.entity_domain(HUMIDIFIER_DOMAIN)
+            ),
+            vol.Optional(CONF_ICON): cv.template,
+            vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.template,
+            vol.Optional(CONF_PICTURE): cv.template,
+            vol.Optional(CONF_UNIQUE_ID): cv.string,
         }
-    ).extend(  # pyright: ignore[reportUnknownMemberType]
-        make_template_entity_base_schema(  # pyright: ignore[reportAny]
-            HUMIDIFIER_DOMAIN, DEFAULT_NAME
-        ).schema
     ),
     _validate_limits,
     _validate_mode,
