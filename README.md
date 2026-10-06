@@ -12,9 +12,10 @@ entities. Many devices expose their power, humidity, target and mode as separate
 them into one entity that works with the humidifier card, voice assistants and
 automations.
 
-Requires Home Assistant 2026.8.3 or newer. It is developed and tested against
-2026.8.3 only, and it reuses parts of Core's `template` integration, so a newer
-release may need an update. This is a **pre-release**; see
+Requires Home Assistant 2026.8.3 or newer. It is tested against 2026.8.3 (the
+oldest supported) and 2026.9.4, and CI also runs the newest release, betas
+included. It reuses parts of Core's `template` integration, so a new Home
+Assistant release can break it. This is a **pre-release**; see
 [Limitations](#limitations).
 
 ## Installation
@@ -340,7 +341,9 @@ and creates them again. It fires the `event_template_humidifier_reloaded` event.
 - `variables` are not live values. A state based entity renders them when it
   starts (its actions render them again on every run), and a trigger based
   section renders them when its trigger fires.
-- Only Home Assistant 2026.8.3 is tested.
+- It depends on parts of Core's `template` integration that Home Assistant may
+  change. Pre-releases up to `0.4.0b1` do not load on Home Assistant 2026.9 or
+  newer; later ones do.
 - With a `state` template and no `optimistic`, `turn_on` and `turn_off` do not
   change the entity by themselves; it follows the source entities.
 - A `mode` template that was valid when it rendered is not checked again if only
@@ -364,6 +367,11 @@ The test plugin pins `pytest`, `pytest-cov` and some of Home Assistant's own
 requirements, so `homeassistant`, `pytest-homeassistant-custom-component`,
 `pytest` and `pytest-cov` are updated together, by hand, when the supported Home
 Assistant version changes. Dependabot ignores them for that reason.
+
+CI runs the tests on the locked Home Assistant version and on newer ones: the
+latest stable release (pinned in `.github/workflows/validate.yml`, updated by
+hand when a new one comes out) must pass, the newest release including betas
+is informational. A weekly run catches Home Assistant changes between pushes.
 
 Releases follow [RELEASE_POLICY.md](RELEASE_POLICY.md). The requirements, and
 what has been built so far, are in [PROJECT_PLAN.md](PROJECT_PLAN.md).
@@ -391,4 +399,5 @@ what has been built so far, are in [PROJECT_PLAN.md](PROJECT_PLAN.md).
 - **다시 불러오기:** 설정을 바꾼 뒤 `template_humidifier.reload` 동작을 실행하면
   재시작 없이 반영됩니다. 첫 `template_humidifier:` 섹션을 추가할 때만 재시작이
   필요합니다.
-- **상태:** 프리릴리즈이며 Home Assistant 2026.8.3에서만 검증했습니다.
+- **상태:** 프리릴리즈이며 Home Assistant 2026.8.3과 2026.9.4에서 검증했습니다.
+  `0.4.0b1` 이하는 Home Assistant 2026.9 이상에서 로드되지 않습니다.

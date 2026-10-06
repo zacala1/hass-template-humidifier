@@ -2051,7 +2051,7 @@ Custom YAML parser
 | 태그 | 대상 커밋 | 내용 |
 | --- | --- | --- |
 | `v0.3.0b1` | `61da229` | 0.1~0.3 범위. 계획(§42)은 `0.1.0b1`을 먼저 내는 것이었으나 0.3 범위까지 구현한 뒤에 처음 공개해서 첫 버전이 `0.3.0b1`이 되었다 |
-| `v0.4.0b1` | `d55300b` | 0.4 범위(`variables`, trigger 기반 섹션) 추가 |
+| `v0.4.0b1` | `d55300b` | 0.4 범위(`variables`, trigger 기반 섹션) 추가. Home Assistant 2026.9 이상에서는 로드되지 않는다(43.3) |
 
 ## 43.2 명세와 달라진 결정
 
@@ -2087,6 +2087,12 @@ Custom YAML parser
 
 Core를 monkey patch하거나 `template` 도메인을 대체하지 않는다(§23, §40).
 
+**실제로 깨진 사례.** Home Assistant 2026.9에서 Core가 `make_template_entity_base_schema`를
+없애서 `0.4.0b1` 이하는 로드되지 않았다. 이름·아이콘·그림·`unique_id`·`default_entity_id`
+스키마를 `schema.py`에 직접 정의해 해결했고, 그 뒤 2026.8.3, 2026.9.4, 2026.10.0b0(베타)에서
+테스트가 모두 통과한다. 이 시점에 2026.9의 `template` 구성요소는 속성(`attributes`)과 엔티티
+단위 `conditions`를 추가했을 뿐 우리가 쓰는 검증기와 베이스 클래스의 시그니처는 바꾸지 않았다.
+
 ## 43.4 실제 구조 (§21 갱신)
 
 ```text
@@ -2106,13 +2112,17 @@ tests/              설정, 상태, 액션, 모드, optimistic, 복원, 변수, 
 ```
 
 CI(§35)는 Ruff, strict BasedPyright, 커버리지 포함 pytest, ZIP 재현성 검사, Hassfest를 돌리고,
-HACS 검증은 공개 레포에서만 실행된다. Dependabot은 GitHub Actions와 uv를 매주 확인하며, 서로
+HACS 검증은 공개 레포에서만 실행된다. 같은 `Validate` 워크플로의 `compat` 잡은 락 파일 없이
+고정한 최신 안정판(필수)과 베타를 포함한 최신 버전(참고용)에서 테스트를 돌리며, 워크플로는
+매주 월요일에도 실행된다. 새 안정판이 나오면 고정한 쌍(Home Assistant와 테스트 플러그인)을
+직접 올린다. Dependabot은 GitHub Actions와 uv를 매주 확인하며, 서로
 묶여 있는 `homeassistant`, 테스트 플러그인, `pytest`, `pytest-cov`는 제외한다.
 
 ## 43.5 1.0 전에 남은 일
 
 1. 실제 장치로 사용해 보는 검증(지금까지는 테스트와 임시 Home Assistant 프로세스로만 확인).
-2. 최신 Home Assistant(2026.9.x) 호환성 확인과 최소/최신(/베타) CI 매트릭스(§35).
+2. ~~최신 Home Assistant 호환성과 CI 매트릭스(§35)~~ — 2026.9.4와 2026.10.0b0에서 통과하고
+   `compat` 잡을 추가했다. 새 Home Assistant가 나올 때마다 이 잡의 결과를 확인한다.
 3. 레포 공개 후 HACS 검증과 HACS 설치 확인(§33).
 4. 설정 스키마에 breaking change 예정이 없는지 확인(§33).
 5. 알려진 한계: 템플릿 `mode`는 `modes` 템플릿만 바뀌어도 다시 검증하지 않는다(다음 `mode`
