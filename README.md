@@ -12,7 +12,9 @@ entities. Many devices expose their power, humidity, target and mode as separate
 them into one entity that works with the humidifier card, voice assistants and
 automations.
 
-Requires Home Assistant 2026.8.3 or newer. This is a **pre-release**; see
+Requires Home Assistant 2026.8.3 or newer. It is developed and tested against
+2026.8.3 only, and it reuses parts of Core's `template` integration, so a newer
+release may need an update. This is a **pre-release**; see
 [Limitations](#limitations).
 
 ## Installation
@@ -194,6 +196,10 @@ Variables on the section are handed to every entity in it. An entity's own
 variables win. They can be used in all templates, including `availability`,
 `name` and `icon`, and in the actions.
 
+A state based entity renders its variables when it starts and its templates use
+those values; its actions get them rendered again every time they run. Use them
+for entity IDs, names and constants rather than for values that change.
+
 Variables are rendered before the entity has an entity ID, so they cannot use
 `this`. An entity whose variables fail to render is skipped with an error in the
 log; the other entities are not affected. Templates and actions can still use
@@ -254,6 +260,10 @@ template_humidifier:
   `mode`.
 - [Remembered values](#remembered-values) work the same way and are restored
   before the first trigger.
+- YAML reads an unquoted `on`, `off`, `yes` or `no` as a boolean, also as a key.
+  Event data written as `on: true` is therefore not found as
+  `trigger.event.data.on`. Use another name such as `power`, or quote the key
+  (`"on": true`).
 - The singular `trigger`, `condition` and `action` keys are not accepted; use
   `triggers`, `conditions` and `actions`. `conditions` and `actions` need
   `triggers`.
@@ -321,13 +331,16 @@ and creates them again. It fires the `event_template_humidifier_reloaded` event.
 - An entity you remove from the YAML keeps its registry entry if it has a
   `unique_id`, and Home Assistant shows it as unavailable. Delete it from the
   entity settings. Entities without a `unique_id` disappear.
+- Trigger based sections are detached and attached again, so a reload never
+  leaves the old triggers running.
 - If the YAML cannot be read, the action fails and nothing changes.
 
 ## Limitations
 
-- Triggers are not part of `variables`: a trigger based section's `variables`
-  are rendered per trigger, while a state based section's are rendered once
-  when its entities are created.
+- `variables` are not live values. A state based entity renders them when it
+  starts (its actions render them again on every run), and a trigger based
+  section renders them when its trigger fires.
+- Only Home Assistant 2026.8.3 is tested.
 - With a `state` template and no `optimistic`, `turn_on` and `turn_off` do not
   change the entity by themselves; it follows the source entities.
 - A `mode` template that was valid when it rendered is not checked again if only
@@ -347,18 +360,35 @@ uv run pytest --cov --cov-branch
 uv run python scripts/build_release.py
 ```
 
-Releases follow [RELEASE_POLICY.md](RELEASE_POLICY.md). The full requirements are
-in [PROJECT_PLAN.md](PROJECT_PLAN.md).
+The test plugin pins `pytest`, `pytest-cov` and some of Home Assistant's own
+requirements, so `homeassistant`, `pytest-homeassistant-custom-component`,
+`pytest` and `pytest-cov` are updated together, by hand, when the supported Home
+Assistant version changes. Dependabot ignores them for that reason.
+
+Releases follow [RELEASE_POLICY.md](RELEASE_POLICY.md). The requirements, and
+what has been built so far, are in [PROJECT_PLAN.md](PROJECT_PLAN.md).
 
 ## 한국어 안내
 
 기존 `switch`, `sensor`, `number`, `select` 엔티티를 하나의 표준 가습기/제습기
 (`humidifier`) 엔티티로 묶어 주는 통합입니다. 설정 방식은 최신 `template:`
-통합과 같고 최상위 키만 `template_humidifier:`입니다. 위의 예시를 그대로
-`configuration.yaml`에 넣고 Home Assistant를 재시작하면 됩니다. 모드
-(`mode`/`modes`/`set_mode`)와 동작 상태(`action`)를 지원하고, 설정을 바꾼 뒤에는
-`template_humidifier.reload` 동작으로 재시작 없이 다시 불러올 수 있습니다.
-`state`, `target_humidity`, `mode` 템플릿을 생략하면 마지막 명령값을 기억하고
-(`optimistic`), 재시작 후에도 복원합니다. `variables`로 값을 한 번 정의해 모든 템플릿과 액션에서 쓸 수 있고, 섹션에
-`triggers`를 두면 트리거가 발생할 때만 갱신되는 트리거 기반 엔티티가 됩니다.
-현재는 프리릴리즈입니다.
+통합과 같고 최상위 키만 `template_humidifier:`입니다.
+
+- **설치:** 아직 비공개 레포라 HACS로는 설치할 수 없습니다. 릴리즈의
+  `template_humidifier.zip`을 `/config/custom_components/template_humidifier`에
+  풀고 Home Assistant를 재시작하세요.
+- **설정:** 위의 예시를 `configuration.yaml`에 넣으면 됩니다. 필수 항목은
+  `device_class`와 `turn_on`, `turn_off`, `set_humidity`뿐이고 `state`,
+  `current_humidity`, `target_humidity`는 선택입니다.
+- **모드와 동작 상태:** `modes`와 `set_mode`를 함께 설정하면 모드를 지원합니다.
+  `action`으로 가습/제습/대기/꺼짐 상태를 알려 줄 수 있습니다.
+- **기억하는 값:** `state`, `target_humidity`, `mode` 템플릿을 생략하면 마지막
+  명령값을 기억하고(`optimistic`) 재시작 후에도 복원합니다.
+- **변수:** `variables`로 값을 한 번 정의해 모든 템플릿과 액션에서 씁니다. 변수에서는
+  `this`를 쓸 수 없습니다.
+- **트리거:** 섹션에 `triggers`를 두면 트리거가 발생할 때만 갱신됩니다. YAML에서
+  따옴표 없는 `on`, `off`, `yes`, `no`는 불리언이므로 이벤트 데이터 키로 쓰지 마세요.
+- **다시 불러오기:** 설정을 바꾼 뒤 `template_humidifier.reload` 동작을 실행하면
+  재시작 없이 반영됩니다. 첫 `template_humidifier:` 섹션을 추가할 때만 재시작이
+  필요합니다.
+- **상태:** 프리릴리즈이며 Home Assistant 2026.8.3에서만 검증했습니다.

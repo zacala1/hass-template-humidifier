@@ -2,6 +2,8 @@
 
 ## Project Planning & Requirements Specification
 
+> **현황 (2026-10-06):** 이 문서는 최초 요구사항 명세이며 본문은 원문 그대로 둔다. 실제로 구현된 범위, 명세와 달라진 결정, 남은 일은 맨 끝의 [43장](#43-구현-현황-2026-10-06-기준)에 정리했다.
+
 ---
 
 # 1. 프로젝트 개요
@@ -2022,8 +2024,97 @@ Custom YAML parser
 # 42. 릴리즈 정책 추가 결정
 
 - `0.1.0`은 MVP의 정식 목표 버전이다.
-- 최초 공개 검증 버전은 `0.1.0b1`, 태그는 `v0.1.0b1`이다.
+- 최초 공개 검증 버전은 `0.1.0b1`, 태그는 `v0.1.0b1`이다. (실제 첫 프리릴리즈는 43장 참고)
 - 모든 베타/RC는 GitHub Pre-release로만 발행한다.
 - 정식 릴리즈는 최종 검증과 프로젝트 소유자의 명시적 승인 이후에만 발행한다.
 - 상세 정책은 `RELEASE_POLICY.md`를 따른다.
 
+---
+
+# 43. 구현 현황 (2026-10-06 기준)
+
+이 문서의 앞부분은 최초 요구사항 명세이며 원문 그대로 둔다. 이 장은 실제로 구현된 범위,
+명세와 달라진 결정, 남은 일을 기록한다.
+
+## 43.1 버전별 범위
+
+| 버전 | 계획서 범위 | 상태 |
+| --- | --- | --- |
+| 0.1 MVP (§29) | YAML 설정, 상태·가용성·현재/목표 습도, 범위·단계, `turn_on`/`turn_off`/`set_humidity`, 가습기·제습기 | 구현. HACS로 설치하는 것만 레포 공개 후 가능 |
+| 0.2 (§30) | `mode`/`modes`/`set_mode`, `action`, supported_features 자동 계산, YAML reload | 구현 |
+| 0.3 (§31) | optimistic 전원·목표 습도·모드, RestoreEntity | 구현 |
+| 0.4 (§32) | `variables`, 동적 아이콘, `default_entity_id`, 고급 availability, trigger 기반 검토 | `variables`와 trigger 기반 섹션 구현. 동적 아이콘과 `default_entity_id`는 0.1 시점에 이미 포함. 고급 availability는 별도 기능 없이 Core와 같은 availability 규칙(템플릿 오류 시 가용 유지 등)으로 구현하고 테스트로 고정 |
+| 1.0 (§33) | 안정화 | 아래 43.5 참고 |
+
+발행한 프리릴리즈:
+
+| 태그 | 대상 커밋 | 내용 |
+| --- | --- | --- |
+| `v0.3.0b1` | `61da229` | 0.1~0.3 범위. 계획(§42)은 `0.1.0b1`을 먼저 내는 것이었으나 0.3 범위까지 구현한 뒤에 처음 공개해서 첫 버전이 `0.3.0b1`이 되었다 |
+| `v0.4.0b1` | `d55300b` | 0.4 범위(`variables`, trigger 기반 섹션) 추가 |
+
+## 43.2 명세와 달라진 결정
+
+- **필수 항목:** `device_class`, `turn_on`, `turn_off`, `set_humidity`만 필수다. `name`과 `unique_id`는
+  Core `template`의 규칙(이름 기본값, `unique_id` 선택)을 따랐고, `state`, `current_humidity`,
+  `target_humidity`는 0.3의 optimistic 도입과 함께 선택으로 완화했다.
+- **검증 단위:** 항목(엔티티) 단위로 검증한다. 잘못된 항목 하나가 같은 목록의 다른 항목을
+  막지 않는다. 섹션의 구조 자체가 잘못되면(알 수 없는 키 등) 그 섹션만 버린다.
+- **`optimistic`:** Core의 `optimistic` 옵션을 지원한다. 전원은 `state`가 없을 때, 목표 습도와
+  모드는 해당 템플릿이 없을 때 기억하며, `optimistic: true`는 셋 모두에 적용된다.
+- **잘못된 `action` 값:** 계획서(FR-040)는 warning을 기록하고 `None` 처리라고 했으나, Core의
+  `template` 검증기를 재사용하므로 error 수준으로 기록하고 `None` 처리한다.
+- **reload:** 첫 `template_humidifier:` 섹션을 추가할 때는 재시작이 필요하다(서비스가 그 뒤에
+  등록된다). `unique_id`가 있는 엔티티를 YAML에서 지우면 Home Assistant가 `unavailable`
+  (restored)로 남기며 UI에서 지워야 한다.
+- **`variables`:** 엔티티를 만드는 시점에 렌더링하므로 `this`를 쓸 수 없다. 렌더링에 실패한
+  엔티티는 오류를 남기고 건너뛴다.
+- **trigger 기반:** 계획서의 "검토"를 구현으로 마무리했다. 단수형 `trigger`/`condition`/`action`
+  키는 받지 않고 `triggers`/`conditions`/`actions`만 받는다.
+- **도구:** §35의 `mypy` 대신 strict BasedPyright를 쓴다. 테스트 커버리지 기준은 95% 이상이고
+  현재 100%다.
+
+## 43.3 Core 내부 API 의존 (§23 정책 기록)
+
+최소 지원 Home Assistant는 `2026.8.3`으로 고정하고, 다음에 의존한다.
+
+- `homeassistant.components.template`의 `TemplateEntity`, `AbstractTemplateEntity`, `TriggerEntity`,
+  `validators`, `schemas.make_template_entity_base_schema`.
+- `TriggerUpdateCoordinator`의 `async_setup`을 대체한다. 부모가 `template` 통합의 플랫폼만 로드하기
+  때문이며, 이때 비공개 멤버 `_attach_triggers`와 `_unsub_start`를 사용한다.
+- `manifest.json`은 `after_dependencies: ["template"]`를 선언한다. Hassfest가 요구하며,
+  `dependencies`에 넣으면 이 통합을 쓰는 모든 사용자에게 `template`이 같이 설정되기 때문이다.
+
+Core를 monkey patch하거나 `template` 도메인을 대체하지 않는다(§23, §40).
+
+## 43.4 실제 구조 (§21 갱신)
+
+```text
+custom_components/template_humidifier/
+├─ __init__.py      설정 처리, 섹션별 플랫폼·코디네이터 시작, reload 동작
+├─ config.py        섹션 스키마, 항목 단위 검증, packages와 라벨 키 지원
+├─ schema.py        엔티티 한 개의 스키마와 정적 한계 검증
+├─ humidifier.py    플랫폼 설정, StateHumidifier, TriggerHumidifier
+├─ entity.py        AbstractTemplateHumidifier (공통 동작)
+├─ coordinator.py   trigger 기반 섹션의 코디네이터
+├─ restore.py       복원용 저장 데이터
+├─ validators.py    습도 숫자 검증기
+├─ const.py, services.yaml, translations/{en,ko}.json, brand/icon.png, manifest.json
+scripts/            build_release.py, check_release_tag.py
+tests/              설정, 상태, 액션, 모드, optimistic, 복원, 변수, trigger, reload, 배포
+.github/workflows/  validate.yml, release.yml (모든 액션은 커밋 SHA로 고정)
+```
+
+CI(§35)는 Ruff, strict BasedPyright, 커버리지 포함 pytest, ZIP 재현성 검사, Hassfest를 돌리고,
+HACS 검증은 공개 레포에서만 실행된다. Dependabot은 GitHub Actions와 uv를 매주 확인하며, 서로
+묶여 있는 `homeassistant`, 테스트 플러그인, `pytest`, `pytest-cov`는 제외한다.
+
+## 43.5 1.0 전에 남은 일
+
+1. 실제 장치로 사용해 보는 검증(지금까지는 테스트와 임시 Home Assistant 프로세스로만 확인).
+2. 최신 Home Assistant(2026.9.x) 호환성 확인과 최소/최신(/베타) CI 매트릭스(§35).
+3. 레포 공개 후 HACS 검증과 HACS 설치 확인(§33).
+4. 설정 스키마에 breaking change 예정이 없는지 확인(§33).
+5. 알려진 한계: 템플릿 `mode`는 `modes` 템플릿만 바뀌어도 다시 검증하지 않는다(다음 `mode`
+   렌더링 때 교정). 복원 시 HA 시작 중에는 목표 습도의 한계 템플릿이 아직 렌더링되기 전이라
+   기본 범위(0~100)로만 검사한다.
