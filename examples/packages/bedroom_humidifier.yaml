@@ -1,0 +1,32 @@
+# Save as /config/packages/bedroom_humidifier.yaml. configuration.yaml needs:
+#
+#   homeassistant:
+#     packages: !include_dir_named packages
+#
+# Packages from several files that each define `template_humidifier:` are merged
+# into one list, so every device can live in its own file.
+
+template_humidifier:
+  - humidifier:
+      - name: "Bedroom Humidifier"
+        unique_id: bedroom_humidifier
+        device_class: humidifier
+
+        state: "{{ is_state('switch.bedroom_humidifier_power', 'on') }}"
+        current_humidity: "{{ states('sensor.bedroom_humidity') }}"
+        target_humidity: "{{ states('number.bedroom_humidifier_target') }}"
+
+        turn_on:
+          - action: switch.turn_on
+            target:
+              entity_id: switch.bedroom_humidifier_power
+        turn_off:
+          - action: switch.turn_off
+            target:
+              entity_id: switch.bedroom_humidifier_power
+        set_humidity:
+          - action: number.set_value
+            target:
+              entity_id: number.bedroom_humidifier_target
+            data:
+              value: "{{ humidity }}"

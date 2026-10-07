@@ -1,0 +1,65 @@
+# Two dehumidifiers of the same brand. The section's variables are shared by both
+# entities, and each entity sets its own `room`. Entity IDs are built from the
+# variables, so adding a third device only needs a new `room` and a name.
+#
+# Variables are rendered in order, so `power` can use `brand` and `room`.
+
+template_humidifier:
+  - variables:
+      brand: acme
+    humidifier:
+      - name: "Bedroom Dehumidifier"
+        unique_id: bedroom_dehumidifier
+        device_class: dehumidifier
+        variables:
+          room: bedroom
+          power: "switch.{{ brand }}_{{ room }}_power"
+          humidity_sensor: "sensor.{{ brand }}_{{ room }}_humidity"
+          target: "number.{{ brand }}_{{ room }}_target"
+        state: "{{ is_state(power, 'on') }}"
+        current_humidity: "{{ states(humidity_sensor) }}"
+        target_humidity: "{{ states(target) }}"
+        min_humidity: 40
+        max_humidity: 70
+        turn_on:
+          - action: switch.turn_on
+            target:
+              entity_id: "{{ power }}"
+        turn_off:
+          - action: switch.turn_off
+            target:
+              entity_id: "{{ power }}"
+        set_humidity:
+          - action: number.set_value
+            target:
+              entity_id: "{{ target }}"
+            data:
+              value: "{{ humidity }}"
+
+      - name: "Study Dehumidifier"
+        unique_id: study_dehumidifier
+        device_class: dehumidifier
+        variables:
+          room: study
+          power: "switch.{{ brand }}_{{ room }}_power"
+          humidity_sensor: "sensor.{{ brand }}_{{ room }}_humidity"
+          target: "number.{{ brand }}_{{ room }}_target"
+        state: "{{ is_state(power, 'on') }}"
+        current_humidity: "{{ states(humidity_sensor) }}"
+        target_humidity: "{{ states(target) }}"
+        min_humidity: 40
+        max_humidity: 70
+        turn_on:
+          - action: switch.turn_on
+            target:
+              entity_id: "{{ power }}"
+        turn_off:
+          - action: switch.turn_off
+            target:
+              entity_id: "{{ power }}"
+        set_humidity:
+          - action: number.set_value
+            target:
+              entity_id: "{{ target }}"
+            data:
+              value: "{{ humidity }}"

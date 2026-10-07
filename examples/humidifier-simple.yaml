@@ -1,0 +1,31 @@
+# The smallest useful humidifier: a switch, a humidity sensor and a number.
+# Replace the entity IDs with your own and put the section in configuration.yaml.
+
+template_humidifier:
+  - humidifier:
+      - name: "Bedroom Humidifier"
+        unique_id: bedroom_humidifier
+        device_class: humidifier
+
+        state: "{{ is_state('switch.humidifier_power', 'on') }}"
+        current_humidity: "{{ states('sensor.bedroom_humidity') }}"
+        target_humidity: "{{ states('number.humidifier_target') }}"
+
+        min_humidity: 30
+        max_humidity: 70
+        target_humidity_step: 5
+
+        turn_on:
+          - action: switch.turn_on
+            target:
+              entity_id: switch.humidifier_power
+        turn_off:
+          - action: switch.turn_off
+            target:
+              entity_id: switch.humidifier_power
+        set_humidity:
+          - action: number.set_value
+            target:
+              entity_id: number.humidifier_target
+            data:
+              value: "{{ humidity }}"

@@ -2107,7 +2107,8 @@ custom_components/template_humidifier/
 ├─ validators.py    습도 숫자 검증기
 ├─ const.py, services.yaml, translations/{en,ko}.json, brand/icon.png, manifest.json
 scripts/            build_release.py, check_release_tag.py
-tests/              설정, 상태, 액션, 모드, optimistic, 복원, 변수, trigger, reload, 배포
+examples/           바로 고쳐 쓰는 설정 예시(스키마·엔티티 생성·주요 동작을 테스트로 검증)
+tests/              설정, 상태, 액션, 모드, optimistic, 복원, 변수, trigger, reload, 예시, 배포
 .github/workflows/  validate.yml, release.yml (모든 액션은 커밋 SHA로 고정)
 ```
 

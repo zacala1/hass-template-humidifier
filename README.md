@@ -321,6 +321,25 @@ key. The old `*_template` option names and `friendly_name` are rejected like in
 the modern `template:` integration; use `state`, `availability`, `name` and the
 other names above.
 
+## Examples
+
+Complete configurations you can copy and edit are in the [`examples`](examples)
+folder. Replace the entity IDs with your own.
+
+| File | What it shows |
+| --- | --- |
+| [`humidifier-simple.yaml`](examples/humidifier-simple.yaml) | The smallest useful humidifier: a switch, a sensor and a number. |
+| [`dehumidifier-full.yaml`](examples/dehumidifier-full.yaml) | A dehumidifier built from five entities, with availability, limits and modes that follow the source entities, and `action`. |
+| [`command-only-device.yaml`](examples/command-only-device.yaml) | A device that only accepts commands, such as one behind an infrared or radio hub. The entity remembers the last command. |
+| [`mqtt-trigger.yaml`](examples/mqtt-trigger.yaml) | A trigger based dehumidifier that updates from MQTT messages. |
+| [`shared-variables.yaml`](examples/shared-variables.yaml) | Two devices of one brand sharing section variables. |
+| [`packages/bedroom_humidifier.yaml`](examples/packages/bedroom_humidifier.yaml) | One device per file with packages. |
+| [`include/configuration.yaml`](examples/include/configuration.yaml) and [`include/template_humidifiers.yaml`](examples/include/template_humidifiers.yaml) | `!include` and the file it includes. |
+
+The tests check every example against the schema and set them up to make sure each
+entity is created, so they stay in step with the integration. The MQTT example is
+only checked against the schema.
+
 ## Reloading
 
 Call the `template_humidifier.reload` action (Developer tools > Actions) after
@@ -382,6 +401,8 @@ what has been built so far, are in [PROJECT_PLAN.md](PROJECT_PLAN.md).
 (`humidifier`) 엔티티로 묶어 주는 통합입니다. 설정 방식은 최신 `template:`
 통합과 같고 최상위 키만 `template_humidifier:`입니다.
 
+- **예시:** `examples/` 폴더에 바로 고쳐 쓸 수 있는 설정이 있습니다(단순 가습기, 제습기 전체 기능,
+  명령 전용 장치, MQTT 트리거, 공유 변수, 패키지, `!include`).
 - **설치:** 아직 비공개 레포라 HACS로는 설치할 수 없습니다. 릴리즈의
   `template_humidifier.zip`을 `/config/custom_components/template_humidifier`에
   풀고 Home Assistant를 재시작하세요.

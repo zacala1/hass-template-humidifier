@@ -1,0 +1,67 @@
+# A dehumidifier that Home Assistant sees as five separate entities, combined into one.
+# Replace the entity IDs with your own and put the section in configuration.yaml.
+#
+#   switch.dehumidifier_power              on/off
+#   sensor.dehumidifier_humidity           measured humidity
+#   number.dehumidifier_target             target humidity (with min, max and step)
+#   select.dehumidifier_mode               mode
+#   binary_sensor.dehumidifier_compressor  on while the compressor runs
+
+template_humidifier:
+  - humidifier:
+      - name: "Living Room Dehumidifier"
+        unique_id: living_room_dehumidifier
+        device_class: dehumidifier
+
+        state: "{{ is_state('switch.dehumidifier_power', 'on') }}"
+
+        # Unavailable while any of the source entities is unknown or unavailable.
+        availability: >
+          {{ has_value('switch.dehumidifier_power')
+             and has_value('sensor.dehumidifier_humidity')
+             and has_value('number.dehumidifier_target') }}
+
+        # A value that is not a number becomes "missing" instead of an error.
+        current_humidity: >
+          {% set value = states('sensor.dehumidifier_humidity') %}
+          {{ value | float if is_number(value) else none }}
+        target_humidity: >
+          {% set value = states('number.dehumidifier_target') %}
+          {{ value | float if is_number(value) else none }}
+
+        # The limits and the step follow the number entity; the value after `float`
+        # is used when the attribute is missing.
+        min_humidity: "{{ state_attr('number.dehumidifier_target', 'min') | float(30) }}"
+        max_humidity: "{{ state_attr('number.dehumidifier_target', 'max') | float(80) }}"
+        target_humidity_step: "{{ state_attr('number.dehumidifier_target', 'step') | float(5) }}"
+
+        # The modes follow the options of the select entity.
+        mode: "{{ states('select.dehumidifier_mode') }}"
+        modes: "{{ state_attr('select.dehumidifier_mode', 'options') }}"
+
+        # What the device is doing: humidifying, drying, idle or off.
+        action: >
+          {% if is_state('switch.dehumidifier_power', 'off') %}off
+          {% elif is_state('binary_sensor.dehumidifier_compressor', 'on') %}drying
+          {% else %}idle{% endif %}
+
+        turn_on:
+          - action: switch.turn_on
+            target:
+              entity_id: switch.dehumidifier_power
+        turn_off:
+          - action: switch.turn_off
+            target:
+              entity_id: switch.dehumidifier_power
+        set_humidity:
+          - action: number.set_value
+            target:
+              entity_id: number.dehumidifier_target
+            data:
+              value: "{{ humidity }}"
+        set_mode:
+          - action: select.select_option
+            target:
+              entity_id: select.dehumidifier_mode
+            data:
+              option: "{{ mode }}"

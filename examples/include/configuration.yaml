@@ -1,0 +1,4 @@
+# An excerpt of /config/configuration.yaml. template_humidifiers.yaml sits next to it.
+# Home Assistant reads the included file, so nothing else is needed.
+
+template_humidifier: !include template_humidifiers.yaml

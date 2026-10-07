@@ -1,0 +1,46 @@
+# A dehumidifier that publishes its state over MQTT. The entity updates when a
+# message arrives instead of following other entities. Needs the MQTT integration.
+#
+# The device publishes {"power": "on", "humidity": 54, "target": 50} on
+# dehumidifier/state and listens on dehumidifier/set and dehumidifier/target.
+
+template_humidifier:
+  - triggers:
+      - trigger: mqtt
+        topic: dehumidifier/state
+    # Ignore messages that are not JSON.
+    conditions:
+      - condition: template
+        value_template: "{{ trigger.payload_json is defined }}"
+    # Runs first; the variables it defines can be used by the templates below.
+    actions:
+      - variables:
+          measured: "{{ trigger.payload_json.humidity }}"
+    humidifier:
+      - name: "Garage Dehumidifier"
+        unique_id: garage_dehumidifier
+        device_class: dehumidifier
+
+        state: "{{ trigger.payload_json.power == 'on' }}"
+        current_humidity: "{{ measured }}"
+        target_humidity: "{{ trigger.payload_json.target }}"
+
+        min_humidity: 40
+        max_humidity: 70
+        target_humidity_step: 5
+
+        turn_on:
+          - action: mqtt.publish
+            data:
+              topic: dehumidifier/set
+              payload: "on"
+        turn_off:
+          - action: mqtt.publish
+            data:
+              topic: dehumidifier/set
+              payload: "off"
+        set_humidity:
+          - action: mqtt.publish
+            data:
+              topic: dehumidifier/target
+              payload: "{{ humidity }}"

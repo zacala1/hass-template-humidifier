@@ -1,0 +1,49 @@
+# A humidifier that only accepts commands, for example one driven by an infrared or
+# radio hub, and reports nothing back. There is no `state`, `target_humidity` or
+# `mode` template, so the entity remembers what you last told it, also across
+# restarts. The room's humidity sensor still gives the current humidity.
+#
+# Commands are sent as remote.send_command calls here; use whatever your hub offers.
+
+template_humidifier:
+  - humidifier:
+      - name: "Nursery Humidifier"
+        unique_id: nursery_humidifier
+        device_class: humidifier
+
+        current_humidity: "{{ states('sensor.nursery_humidity') }}"
+
+        min_humidity: 40
+        max_humidity: 60
+        target_humidity_step: 10
+
+        modes: [low, medium, high]
+
+        turn_on:
+          - action: remote.send_command
+            target:
+              entity_id: remote.living_room_hub
+            data:
+              device: nursery_humidifier
+              command: power_on
+        turn_off:
+          - action: remote.send_command
+            target:
+              entity_id: remote.living_room_hub
+            data:
+              device: nursery_humidifier
+              command: power_off
+        set_humidity:
+          - action: remote.send_command
+            target:
+              entity_id: remote.living_room_hub
+            data:
+              device: nursery_humidifier
+              command: "target_{{ humidity }}"
+        set_mode:
+          - action: remote.send_command
+            target:
+              entity_id: remote.living_room_hub
+            data:
+              device: nursery_humidifier
+              command: "mode_{{ mode }}"
