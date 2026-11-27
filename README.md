@@ -15,8 +15,7 @@ automations.
 Requires Home Assistant 2026.8.3 or newer. It is tested against 2026.8.3 (the
 oldest supported) and 2026.9.4, and runs on 2026.11.3 with a real
 dehumidifier. It reuses parts of Core's `template` integration, so a new Home
-Assistant release can break it. This is a **pre-release**; see
-[Limitations](#limitations).
+Assistant release can break it; see [Limitations](#limitations).
 
 ## Installation
 
