@@ -13,23 +13,30 @@ them into one entity that works with the humidifier card, voice assistants and
 automations.
 
 Requires Home Assistant 2026.8.3 or newer. It is tested against 2026.8.3 (the
-oldest supported) and 2026.9.4, and CI also runs the newest release, betas
-included. It reuses parts of Core's `template` integration, so a new Home
+oldest supported) and 2026.9.4, and runs on 2026.11.3 with a real
+dehumidifier. It reuses parts of Core's `template` integration, so a new Home
 Assistant release can break it. This is a **pre-release**; see
 [Limitations](#limitations).
 
 ## Installation
 
-### HACS
+### Marketplace (Home Assistant 2026.11 or newer)
+
+1. Open **Marketplace**, choose **Add from a GitHub link**, and enter
+   `https://github.com/zacala1/hass-template-humidifier`.
+2. Open **Template Humidifier** and choose **Install**.
+3. Add a `template_humidifier:` configuration and restart Home Assistant.
+
+To receive pre-releases, choose **Include pre-releases** in the repository's
+menu before installing or updating.
+
+### HACS (older Home Assistant)
 
 1. Add this repository as a custom repository of type **Integration**.
 2. Download **Template Humidifier**.
-3. To receive pre-releases such as `0.4.0b2`, open the repository in HACS, choose
+3. To receive pre-releases, open the repository in HACS, choose
    **Redownload**, and enable **Show beta versions**.
 4. Restart Home Assistant.
-
-HACS cannot read private repositories. Until this repository is public, install
-it manually.
 
 ### Manual
 
@@ -361,8 +368,8 @@ and creates them again. It fires the `event_template_humidifier_reloaded` event.
   starts (its actions render them again on every run), and a trigger based
   section renders them when its trigger fires.
 - It depends on parts of Core's `template` integration that Home Assistant may
-  change. Pre-releases up to `0.4.0b1` do not load on Home Assistant 2026.9 or
-  newer; later ones do.
+  change, so a new Home Assistant release can need a new version of this
+  integration.
 - With a `state` template and no `optimistic`, `turn_on` and `turn_off` do not
   change the entity by themselves; it follows the source entities.
 - A `mode` template that was valid when it rendered is not checked again if only
@@ -403,9 +410,11 @@ what has been built so far, are in [PROJECT_PLAN.md](PROJECT_PLAN.md).
 
 - **예시:** `examples/` 폴더에 바로 고쳐 쓸 수 있는 설정이 있습니다(단순 가습기, 제습기 전체 기능,
   명령 전용 장치, MQTT 트리거, 공유 변수, 패키지, `!include`).
-- **설치:** 아직 비공개 레포라 HACS로는 설치할 수 없습니다. 릴리즈의
+- **설치:** Home Assistant 2026.11 이상은 **Marketplace**에서 **Add from a GitHub
+  link**로 이 레포 주소를 넣고 설치합니다. 그보다 오래된 버전은 HACS의 사용자 지정
+  저장소(Integration)로 추가합니다. 직접 설치하려면 릴리즈의
   `template_humidifier.zip`을 `/config/custom_components/template_humidifier`에
-  풀고 Home Assistant를 재시작하세요.
+  풉니다. 어느 방법이든 설정을 넣고 Home Assistant를 재시작하세요.
 - **설정:** 위의 예시를 `configuration.yaml`에 넣으면 됩니다. 필수 항목은
   `device_class`와 `turn_on`, `turn_off`, `set_humidity`뿐이고 `state`,
   `current_humidity`, `target_humidity`는 선택입니다.
@@ -420,5 +429,6 @@ what has been built so far, are in [PROJECT_PLAN.md](PROJECT_PLAN.md).
 - **다시 불러오기:** 설정을 바꾼 뒤 `template_humidifier.reload` 동작을 실행하면
   재시작 없이 반영됩니다. 첫 `template_humidifier:` 섹션을 추가할 때만 재시작이
   필요합니다.
-- **상태:** 프리릴리즈이며 Home Assistant 2026.8.3과 2026.9.4에서 검증했습니다.
-  `0.4.0b1` 이하는 Home Assistant 2026.9 이상에서 로드되지 않습니다.
+- **지원 버전:** Home Assistant 2026.8.3 이상이 필요합니다. 2026.8.3과 2026.9.4에서
+  테스트하고, 2026.11.3에서 실제 제습기로 사용합니다. Core `template` 통합의 일부를
+  재사용하므로 새 Home Assistant 버전에서는 이 통합의 새 버전이 필요할 수 있습니다.
